@@ -1,7 +1,7 @@
 //============================================================================
-// Name        : mandelbrot17.cpp
-// Author      : Markus Flad
-// Version     :
+// Name		: mandelbrot17.cpp
+// Author	  : Markus Flad
+// Version	 :
 // Copyright   : 
 // Description : Hello World in C++, Ansi-style
 //============================================================================
@@ -123,11 +123,11 @@ public:
 	, _pointOfNoReturn(pointOfNoReturn)
 	, _pbm(pbm) {
 	}
-    void operator()() const {
-    	double rasterReal = (_cLast.real() - _cFirst.real()) / _pbm.width();
-    	double rasterImag = (_cLast.imag() - _cFirst.imag()) / _pbm.width();
-    	double squaredPointOfNoReturn = _pointOfNoReturn * _pointOfNoReturn;
-    	for (int y=_yBegin; y<_pbm.height(); y+=_yRaster) {
+	void operator()() const {
+		double rasterReal = (_cLast.real() - _cFirst.real()) / _pbm.width();
+		double rasterImag = (_cLast.imag() - _cFirst.imag()) / _pbm.width();
+		double squaredPointOfNoReturn = _pointOfNoReturn * _pointOfNoReturn;
+		for (int y=_yBegin; y<_pbm.height(); y+=_yRaster) {
 			double cImagValue = _cFirst.imag() + y*rasterImag;
 			std::vector<bool> mandelbrotLine(_pbm.width());
 			for (int x=0; x<_pbm.width(); x++) {
@@ -142,16 +142,16 @@ public:
 				mandelbrotLine[x] = (i < _maxIterations);
 			}
 			_pbm.setNextLine(y, mandelbrotLine);
-    	}
-    }
+		}
+	}
 private:
-    int _yBegin;
-    int _yRaster;
-    std::complex<double> _cFirst;
-    std::complex<double> _cLast;
-    int _maxIterations;
-    double _pointOfNoReturn;
-    PortableBinaryBitmap& _pbm;
+	int _yBegin;
+	int _yRaster;
+	std::complex<double> _cFirst;
+	std::complex<double> _cLast;
+	int _maxIterations;
+	double _pointOfNoReturn;
+	PortableBinaryBitmap& _pbm;
 };
 
 int main() {
