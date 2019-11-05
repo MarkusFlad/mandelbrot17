@@ -125,20 +125,6 @@ public:
     NumberType& operator[](std::size_t i) {
         return _numbers[i];
     }
-    NumberType maxValue() const {
-    	double maxValue = 0.0;
-    	for (std::size_t i=0; i<N; i++) {
-    		maxValue = std::max(maxValue, _numbers[i]);
-    	}
-    	return maxValue;
-    }
-    NumberType minValue() const {
-    	double minValue = 0.0;
-    	for (int i=0; i<N; i++) {
-    		minValue = std::min(minValue, _numbers[i]);
-    	}
-    	return minValue;
-    }
 	friend VectorizedNumbers operator+(const VectorizedNumbers& lhs, const VectorizedNumbers& rhs) {
 		VectorizedNumbers resultNumbers;
 		for (std::size_t i=0; i<N; i++) {
@@ -160,6 +146,22 @@ public:
 private:
 	std::array<NumberType, N> _numbers;
 };
+
+template<std::size_t N>
+VectorizedNumbers<double, N> zSquaredPlusC(
+		VectorizedNumbers<std::complex<double>, N>& z,
+		const VectorizedNumbers<std::complex<double>, N>& c) {
+	VectorizedNumbers<double, N> square;
+	for (std::size_t i=0; i<N; i++) {
+		double r2 = z[i].real() * z[i].real();
+		double i2 = z[i].imag() * z[i].imag();
+		double ri = z[i].real() * z[i].imag();
+		square[i] = r2 + i2;
+		z[i].real(r2 - i2 + c[i].real());
+		z[i].imag(ri + ri + c[i].imag());
+	}
+	return square;
+}
 
 template<std::size_t N>
 VectorizedNumbers<double, N> squaredAbs(const VectorizedNumbers<std::complex<double>, N>& vn) {
@@ -207,9 +209,8 @@ public:
 					std::size_t i=0;
 					bool anyZNotExceeded = true;
 					while (anyZNotExceeded && i < _maxIterations) {
-						z = z*z + c;
+						VectorizedNumbers<double, vectorizationConcurrency> vsa = zSquaredPlusC(z, c);
 						i++;
-						VectorizedNumbers<double, vectorizationConcurrency> vsa = squaredAbs(z);
 						anyZNotExceeded = false;
 						for (std::size_t j=0; j<vectorizationConcurrency; j++) {
 							if (vsa[j] < squaredPointOfNoReturn) {
