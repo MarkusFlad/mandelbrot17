@@ -8,6 +8,7 @@
 
 #include <string>
 #include <fstream>
+#include <array>
 #include <vector>
 #include <utility>
 #include <queue>
@@ -20,7 +21,7 @@
 
 class PortableBinaryBitmap {
 public:
-	PortableBinaryBitmap(const std::string& filename, int width, int height)
+	PortableBinaryBitmap(const std::string& filename, std::size_t width, std::size_t height)
 	: _file (filename)
 	, _width (width)
 	, _height (height)
@@ -28,13 +29,13 @@ public:
 		_file << "P4" << '\n';
 		_file << _width << ' ' << _height << '\n';
 	}
-	int width() const {
+	std::size_t width() const {
 		return _width;
 	}
-	int height() const {
+	std::size_t height() const {
 		return _height;
 	}
-	void setNextLine(int y, const std::vector<bool>& line) {
+	void setNextLine(std::size_t y, const std::vector<bool>& line) {
 		std::unique_lock<std::mutex> lock (_mtx);
 		if (y != _currentY) {
 			_pendingLines[y] = line;
@@ -43,7 +44,7 @@ public:
 		setNextLine(line);
 		std::vector<int> yOfLinesDone;
 		for (auto it = _pendingLines.begin(); it!=_pendingLines.end(); ++it) {
-			int smallestY = it->first;
+			std::size_t smallestY = it->first;
 			if (smallestY == _currentY) {
 				setNextLine(it->second);
 				yOfLinesDone.push_back(smallestY);
@@ -99,22 +100,83 @@ protected:
 private:
 	std::mutex _mtx;
 	std::ofstream _file;
-	int _width;
-	int _height;
-	int _currentY;
+	std::size_t _width;
+	std::size_t _height;
+	std::size_t _currentY;
 	std::map<int, std::vector<bool>> _pendingLines;
 };
 
-double squaredAbs(const std::complex<double>& c) {
-	double cReal = c.real();
-	double cImag = c.imag();
-	return cReal * cReal + cImag * cImag;
+template <class NumberType, std::size_t N>
+class VectorizedNumbers {
+public:
+	VectorizedNumbers() = default;
+	VectorizedNumbers(const VectorizedNumbers& other) = default;
+	VectorizedNumbers& operator=(const VectorizedNumbers& other) = default;
+	VectorizedNumbers(const NumberType* firstNumber)	{
+		const NumberType* currentNumber = firstNumber;
+		for (size_t i = 0; i < N; i++) {
+			_numbers[i] = *currentNumber;
+			currentNumber++;
+		}
+	}
+    const NumberType& operator[](std::size_t i) const {
+        return _numbers[i];
+    }
+    NumberType& operator[](std::size_t i) {
+        return _numbers[i];
+    }
+    NumberType maxValue() const {
+    	double maxValue = 0.0;
+    	for (std::size_t i=0; i<N; i++) {
+    		maxValue = std::max(maxValue, _numbers[i]);
+    	}
+    	return maxValue;
+    }
+    NumberType minValue() const {
+    	double minValue = 0.0;
+    	for (int i=0; i<N; i++) {
+    		minValue = std::min(minValue, _numbers[i]);
+    	}
+    	return minValue;
+    }
+	friend VectorizedNumbers operator+(const VectorizedNumbers& lhs, const VectorizedNumbers& rhs) {
+		VectorizedNumbers resultNumbers;
+		for (std::size_t i=0; i<N; i++) {
+			const NumberType& lhsNumber = lhs._numbers[i];
+			const NumberType& rhsNumber = rhs._numbers[i];
+			resultNumbers._numbers[i] = lhsNumber + rhsNumber;
+		}
+		return resultNumbers;
+	}
+	friend VectorizedNumbers operator*(const VectorizedNumbers& lhs, const VectorizedNumbers& rhs) {
+		VectorizedNumbers resultNumbers;
+		for (std::size_t i=0; i<N; i++) {
+			const NumberType& lhsNumber = lhs._numbers[i];
+			const NumberType& rhsNumber = rhs._numbers[i];
+			resultNumbers._numbers[i] = lhsNumber * rhsNumber;
+		}
+		return resultNumbers;
+	}
+private:
+	std::array<NumberType, N> _numbers;
+};
+
+template<std::size_t N>
+VectorizedNumbers<double, N> squaredAbs(const VectorizedNumbers<std::complex<double>, N>& vn) {
+	VectorizedNumbers<double, N> resultNumbers;
+	for (std::size_t i=0; i<N; i++) {
+		const std::complex<double>& number = vn[i];
+		double cReal = number.real();
+		double cImag = number.imag();
+		resultNumbers[i] = cReal * cReal + cImag * cImag;
+	}
+	return resultNumbers;
 }
 
 class CalculatorThread {
 public:
-	CalculatorThread(int yBegin, int yRaster, const std::complex<double>& cFirst, const std::complex<double>& cLast,
-			int maxIterations, double pointOfNoReturn, PortableBinaryBitmap& pbm)
+	CalculatorThread(std::size_t yBegin, std::size_t yRaster, const std::complex<double>& cFirst, const std::complex<double>& cLast,
+			std::size_t maxIterations, double pointOfNoReturn, PortableBinaryBitmap& pbm)
 	: _yBegin(yBegin)
 	, _yRaster(yRaster)
 	, _cFirst(cFirst)
@@ -127,39 +189,60 @@ public:
 		double rasterReal = (_cLast.real() - _cFirst.real()) / _pbm.width();
 		double rasterImag = (_cLast.imag() - _cFirst.imag()) / _pbm.width();
 		double squaredPointOfNoReturn = _pointOfNoReturn * _pointOfNoReturn;
-		for (int y=_yBegin; y<_pbm.height(); y+=_yRaster) {
+		for (std::size_t y=_yBegin; y<_pbm.height(); y+=_yRaster) {
 			double cImagValue = _cFirst.imag() + y*rasterImag;
 			std::vector<bool> mandelbrotLine(_pbm.width());
-			for (int x=0; x<_pbm.width(); x++) {
-				std::complex<double> z(0, 0);
+			constexpr std::size_t vectorizationConcurrency = 8;
+			VectorizedNumbers<std::complex<double>, vectorizationConcurrency> z;
+			VectorizedNumbers<std::complex<double>, vectorizationConcurrency> c;
+			VectorizedNumbers<std::size_t, vectorizationConcurrency> numberOfIterations;
+			std::size_t startX = 0;
+			for (std::size_t x=0; x<_pbm.width(); x++) {
 				double cRealValue = _cFirst.real() + x*rasterReal;
-				std::complex<double> c(cRealValue, cImagValue);
-				int i=0;
-				while (squaredAbs(z) <= squaredPointOfNoReturn && i < _maxIterations) {
-					z = z*z + c;
-					i++;
+				std::size_t i = x%vectorizationConcurrency;
+				z[i] = std::complex<double>(0, 0);
+				c[i] = std::complex<double>(cRealValue, cImagValue);
+				numberOfIterations[i] = 0;
+				if (i==7) {
+					std::size_t i=0;
+					bool anyZNotExceeded = true;
+					while (anyZNotExceeded && i < _maxIterations) {
+						z = z*z + c;
+						i++;
+						VectorizedNumbers<double, vectorizationConcurrency> vsa = squaredAbs(z);
+						anyZNotExceeded = false;
+						for (std::size_t j=0; j<vectorizationConcurrency; j++) {
+							if (vsa[j] < squaredPointOfNoReturn) {
+								numberOfIterations[j] = i;
+								anyZNotExceeded = true;
+							}
+						}
+					}
+					for (std::size_t j=0; j<vectorizationConcurrency; j++) {
+						mandelbrotLine[startX+j] = (numberOfIterations[j] < _maxIterations);
+					}
+					startX += vectorizationConcurrency;
 				}
-				mandelbrotLine[x] = (i < _maxIterations);
 			}
 			_pbm.setNextLine(y, mandelbrotLine);
 		}
 	}
 private:
-	int _yBegin;
-	int _yRaster;
+	std::size_t _yBegin;
+	std::size_t _yRaster;
 	std::complex<double> _cFirst;
 	std::complex<double> _cLast;
-	int _maxIterations;
+	std::size_t _maxIterations;
 	double _pointOfNoReturn;
 	PortableBinaryBitmap& _pbm;
 };
 
 int main() {
-	const int N = 16000;
+	const std::size_t N = 16000;
 	const std::complex<double> cFirst (-1.5, -1.0);
 	const std::complex<double> cLast (0.5, 1.0);
-	const int maxIterations = 50;
-	const int pointOfNoReturn = 4.0;
+	const std::size_t maxIterations = 50;
+	const double pointOfNoReturn = 4.0;
 	PortableBinaryBitmap pbm ("mandelbrot17.pbm", N, N);
 	std::size_t numberOfThreads = std::thread::hardware_concurrency();
 	std::vector<std::thread> threads;
