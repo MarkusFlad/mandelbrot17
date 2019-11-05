@@ -18,14 +18,12 @@
 #include <thread>
 #include <iostream>
 
-using std::complex;
-
 class PortableBinaryBitmap {
 public:
-	PortableBinaryBitmap(const std::string& filename, int width, int HEIGHT)
+	PortableBinaryBitmap(const std::string& filename, int width, int height)
 	: _file (filename)
 	, _width (width)
-	, _height (HEIGHT)
+	, _height (height)
 	, _currentY (0) {
 		_file << "P4" << '\n';
 		_file << _width << ' ' << _height << '\n';
@@ -107,7 +105,7 @@ private:
 	std::map<int, std::vector<bool>> _pendingLines;
 };
 
-double squaredAbs(const complex<double>& c) {
+double squaredAbs(const std::complex<double>& c) {
 	double cReal = c.real();
 	double cImag = c.imag();
 	return cReal * cReal + cImag * cImag;
@@ -115,28 +113,27 @@ double squaredAbs(const complex<double>& c) {
 
 class CalculatorThread {
 public:
-	CalculatorThread(int yBegin, int yRaster, int maxY, double minReal, double rasterReal, double minImag, double rasterImag,
-			double pointOfNoReturn, int maxIterations, PortableBinaryBitmap& pbm)
+	CalculatorThread(int yBegin, int yRaster, const std::complex<double>& cFirst, const std::complex<double>& cLast,
+			int maxIterations, double pointOfNoReturn, PortableBinaryBitmap& pbm)
 	: _yBegin(yBegin)
 	, _yRaster(yRaster)
-	, _maxY(maxY)
-	, _minReal(minReal)
-	, _rasterReal(rasterReal)
-	, _minImag(minImag)
-	, _rasterImag(rasterImag)
-	, _pointOfNoReturn(pointOfNoReturn)
+	, _cFirst(cFirst)
+	, _cLast(cLast)
 	, _maxIterations(maxIterations)
+	, _pointOfNoReturn(pointOfNoReturn)
 	, _pbm(pbm) {
 	}
     void operator()() const {
+    	double rasterReal = (_cLast.real() - _cFirst.real()) / _pbm.width();
+    	double rasterImag = (_cLast.imag() - _cFirst.imag()) / _pbm.width();
     	double squaredPointOfNoReturn = _pointOfNoReturn * _pointOfNoReturn;
-    	for (int y=_yBegin; y<_maxY; y+=_yRaster) {
-			double cImagValue = _minImag + y*_rasterImag;
+    	for (int y=_yBegin; y<_pbm.height(); y+=_yRaster) {
+			double cImagValue = _cFirst.imag() + y*rasterImag;
 			std::vector<bool> mandelbrotLine(_pbm.width());
 			for (int x=0; x<_pbm.width(); x++) {
-				complex<double> z(0, 0);
-				double cRealValue = _minReal + x*_rasterReal;
-				complex<double> c(cRealValue, cImagValue);
+				std::complex<double> z(0, 0);
+				double cRealValue = _cFirst.real() + x*rasterReal;
+				std::complex<double> c(cRealValue, cImagValue);
 				int i=0;
 				while (squaredAbs(z) <= squaredPointOfNoReturn && i < _maxIterations) {
 					z = z*z + c;
@@ -150,33 +147,24 @@ public:
 private:
     int _yBegin;
     int _yRaster;
-    int _maxY;
-    double _minReal;
-    double _rasterReal;
-    double _minImag;
-    double _rasterImag;
-    double _pointOfNoReturn;
+    std::complex<double> _cFirst;
+    std::complex<double> _cLast;
     int _maxIterations;
+    double _pointOfNoReturn;
     PortableBinaryBitmap& _pbm;
 };
 
 int main() {
-	constexpr int N = 16000;
-	constexpr int WIDTH = N;
-	constexpr int HEIGHT = N;
-	constexpr double MIN_REAL = -1.5;
-	constexpr double MAX_REAL = 0.5;
-	constexpr double MIN_IMAG = -1;
-	constexpr double MAX_IMAG = 1;
-	constexpr double RASTER_REAL = (MAX_REAL - MIN_REAL) / WIDTH;
-	constexpr double RASTER_IMAG = (MAX_IMAG - MIN_IMAG) / HEIGHT;
-	constexpr int MAXITERATIONS = 50;
-	constexpr int POINT_OF_NO_RETURN = 4.0;
-	PortableBinaryBitmap pbm ("mandelbrot17.pbm", WIDTH, HEIGHT);
+	const int N = 16000;
+	const std::complex<double> cFirst (-1.5, -1.0);
+	const std::complex<double> cLast (0.5, 1.0);
+	const int maxIterations = 50;
+	const int pointOfNoReturn = 4.0;
+	PortableBinaryBitmap pbm ("mandelbrot17.pbm", N, N);
 	std::size_t numberOfThreads = std::thread::hardware_concurrency();
 	std::vector<std::thread> threads;
 	for (std::size_t i=0; i<numberOfThreads; i++) {
-		CalculatorThread calculatorThread(i, numberOfThreads, HEIGHT, MIN_REAL, RASTER_REAL, MIN_IMAG, RASTER_IMAG, POINT_OF_NO_RETURN, MAXITERATIONS, pbm);
+		CalculatorThread calculatorThread(i, numberOfThreads, cFirst, cLast, maxIterations, pointOfNoReturn, pbm);
 		threads.push_back(std::thread(calculatorThread));
 	}
 	for (auto& t : threads) {
