@@ -125,6 +125,9 @@ public:
     NumberType& operator[](std::size_t i) {
         return _numbers[i];
     }
+    const std::array<NumberType, N>& numbers() const {
+    	return _numbers;
+    }
 	friend VectorizedNumbers operator+(const VectorizedNumbers& lhs, const VectorizedNumbers& rhs) {
 		VectorizedNumbers resultNumbers;
 		for (std::size_t i=0; i<N; i++) {
@@ -143,37 +146,44 @@ public:
 		}
 		return resultNumbers;
 	}
-private:
+protected:
 	std::array<NumberType, N> _numbers;
 };
 
-template<std::size_t N>
-VectorizedNumbers<double, N> zSquaredPlusC(
-		VectorizedNumbers<std::complex<double>, N>& z,
-		const VectorizedNumbers<std::complex<double>, N>& c) {
-	VectorizedNumbers<double, N> square;
-	for (std::size_t i=0; i<N; i++) {
-		double r2 = z[i].real() * z[i].real();
-		double i2 = z[i].imag() * z[i].imag();
-		double ri = z[i].real() * z[i].imag();
-		square[i] = r2 + i2;
-		z[i].real(r2 - i2 + c[i].real());
-		z[i].imag(ri + ri + c[i].imag());
+template <std::size_t N>
+class VectorizedComplexWithSquaredAbs : public VectorizedNumbers<std::complex<double>, N> {
+public:
+	VectorizedComplexWithSquaredAbs() = default;
+	VectorizedComplexWithSquaredAbs(const VectorizedComplexWithSquaredAbs& other) = default;
+	VectorizedComplexWithSquaredAbs& operator=(const VectorizedComplexWithSquaredAbs& other) = default;
+	VectorizedComplexWithSquaredAbs& operator=(const VectorizedNumbers<std::complex<double>, N>& other) {
+		VectorizedNumbers<std::complex<double>, N>::_numbers = other.numbers();
+		return *this;
 	}
-	return square;
-}
-
-template<std::size_t N>
-VectorizedNumbers<double, N> squaredAbs(const VectorizedNumbers<std::complex<double>, N>& vn) {
-	VectorizedNumbers<double, N> resultNumbers;
-	for (std::size_t i=0; i<N; i++) {
-		const std::complex<double>& number = vn[i];
-		double cReal = number.real();
-		double cImag = number.imag();
-		resultNumbers[i] = cReal * cReal + cImag * cImag;
+	VectorizedComplexWithSquaredAbs(const VectorizedNumbers<std::complex<double>, N>& number,
+			const VectorizedNumbers<double, N>& numbersSquaredAbs)
+	: VectorizedNumbers<std::complex<double>, N>(number)
+	, _numbersSquaredAbs(numbersSquaredAbs) {
 	}
-	return resultNumbers;
-}
+	VectorizedComplexWithSquaredAbs square() {
+		VectorizedNumbers<double, N> squaredAbs;
+		for (std::size_t i=0; i<N; i++) {
+			std::complex<double>& number = VectorizedNumbers<std::complex<double>, N>::_numbers[i];
+			double r2 = number.real() * number.real();
+			double i2 = number.imag() * number.imag();
+			double ri = number.real() * number.imag();
+			squaredAbs[i] = r2 + i2;
+			number.real(r2 - i2);
+			number.imag(ri + ri);
+		}
+		return VectorizedComplexWithSquaredAbs(*this, squaredAbs);
+	}
+	VectorizedNumbers<double, N> squaredAbs() const {
+		return _numbersSquaredAbs;
+	}
+private:
+	VectorizedNumbers<double, N> _numbersSquaredAbs;
+};
 
 class CalculatorThread {
 public:
@@ -195,7 +205,7 @@ public:
 			double cImagValue = _cFirst.imag() + y*rasterImag;
 			std::vector<bool> mandelbrotLine(_pbm.width());
 			constexpr std::size_t vectorizationConcurrency = 8;
-			VectorizedNumbers<std::complex<double>, vectorizationConcurrency> z;
+			VectorizedComplexWithSquaredAbs<vectorizationConcurrency> z;
 			VectorizedNumbers<std::complex<double>, vectorizationConcurrency> c;
 			VectorizedNumbers<std::size_t, vectorizationConcurrency> numberOfIterations;
 			std::size_t startX = 0;
@@ -209,11 +219,12 @@ public:
 					std::size_t i=0;
 					bool anyZNotExceeded = true;
 					while (anyZNotExceeded && i < _maxIterations) {
-						VectorizedNumbers<double, vectorizationConcurrency> vsa = zSquaredPlusC(z, c);
+						auto zSquare = z.square();
+						z = zSquare + c;
 						i++;
 						anyZNotExceeded = false;
 						for (std::size_t j=0; j<vectorizationConcurrency; j++) {
-							if (vsa[j] < squaredPointOfNoReturn) {
+							if (zSquare.squaredAbs()[j] < squaredPointOfNoReturn) {
 								numberOfIterations[j] = i;
 								anyZNotExceeded = true;
 							}
