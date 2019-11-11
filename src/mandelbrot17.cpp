@@ -110,6 +110,15 @@ private:
 template <class SimdRegisterType, std::size_t MAX_VECTORIZATION>
 class VectorizedComplex {
 public:
+	static constexpr std::size_t numberOfDoublesInRegister() {
+		return sizeof(SimdRegisterType) / sizeof(double);
+	}
+	static constexpr std::size_t iterations() {
+		return MAX_VECTORIZATION / numberOfDoublesInRegister();
+	}
+	static constexpr std::size_t maxVectorization() {
+		return MAX_VECTORIZATION;
+	}
 	static struct imaginary {
 	} i;
 	VectorizedComplex() = default;
@@ -121,15 +130,7 @@ public:
 	VectorizedComplex(double commonImagValue, imaginary i) {
 		setVectorValues(_imags, commonImagValue);
 	}
-	static constexpr std::size_t numberOfDoublesInRegister() {
-		return sizeof(SimdRegisterType) / sizeof(double);
-	}
-	static constexpr std::size_t iterations() {
-		return MAX_VECTORIZATION / numberOfDoublesInRegister();
-	}
-	static constexpr std::size_t maxVectorization() {
-		return MAX_VECTORIZATION;
-	}
+	VectorizedComplex& operator=(const VectorizedComplex& other) = default;
 	VectorizedComplex& setValues(double commonRealValue, double commonImagValue) {
 		setVectorValues(_reals, commonRealValue);
 		setVectorValues(_imags, commonImagValue);
@@ -143,7 +144,6 @@ public:
 		setVectorValues(_imags, commonImagValue);
 		return *this;
 	}
-	VectorizedComplex& operator=(const VectorizedComplex& other) = default;
     void real(std::size_t i, double realValue) {
     	_reals[i] = realValue;
     }
@@ -183,15 +183,16 @@ public:
 	}
 protected:
 	static void setVectorValues(double* values, double v) {
-		SimdRegisterType* vValues = reinterpret_cast<SimdRegisterType*>(values);
+		auto vValues = reinterpret_cast<SimdRegisterType*>(values);
 		for (std::size_t i=0; i<maxVectorization(); i+=numberOfDoublesInRegister()) {
 			if constexpr (numberOfDoublesInRegister() == 2) {
-				vValues[i] = SimdRegisterType{v, v};
+				*vValues = SimdRegisterType{v, v};
 			} else if constexpr (numberOfDoublesInRegister() == 4) {
-				vValues[i] = SimdRegisterType{v, v, v, v};
+				*vValues = SimdRegisterType{v, v, v, v};
 			} else if constexpr (numberOfDoublesInRegister() == 8) {
-				vValues[i] = SimdRegisterType{v, v, v, v, v, v, v, v};
+				*vValues = SimdRegisterType{v, v, v, v, v, v, v, v};
 			}
+			vValues++;
 		}
 	}
 private:
