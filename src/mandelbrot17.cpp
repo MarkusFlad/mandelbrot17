@@ -18,6 +18,7 @@
 #include <mutex>
 #include <thread>
 #include <iostream>
+#include <immintrin.h>
 
 class PortableBinaryBitmap {
 public:
@@ -106,87 +107,104 @@ private:
 	std::map<int, std::vector<bool>> _pendingLines;
 };
 
-template <class NumberType, std::size_t N>
-class VectorizedNumbers {
+template <class SimdRegisterType, std::size_t MAX_VECTORIZATION>
+class VectorizedComplex {
 public:
-	VectorizedNumbers() = default;
-	VectorizedNumbers(const VectorizedNumbers& other) = default;
-	VectorizedNumbers& operator=(const VectorizedNumbers& other) = default;
-	VectorizedNumbers(const NumberType* firstNumber)	{
-		const NumberType* currentNumber = firstNumber;
-		for (size_t i = 0; i < N; i++) {
-			_numbers[i] = *currentNumber;
-			currentNumber++;
-		}
+	static struct imaginary {
+	} i;
+	VectorizedComplex() = default;
+	VectorizedComplex(const VectorizedComplex& other) = default;
+	VectorizedComplex(double commonRealValue, double commonImagValue) {
+		setVectorValues(_reals, commonRealValue);
+		setVectorValues(_imags, commonImagValue);
 	}
-    const NumberType& operator[](std::size_t i) const {
-        return _numbers[i];
+	VectorizedComplex(double commonImagValue, imaginary i) {
+		setVectorValues(_imags, commonImagValue);
+	}
+	static constexpr std::size_t numberOfDoublesInRegister() {
+		return sizeof(SimdRegisterType) / sizeof(double);
+	}
+	static constexpr std::size_t iterations() {
+		return MAX_VECTORIZATION / numberOfDoublesInRegister();
+	}
+	static constexpr std::size_t maxVectorization() {
+		return MAX_VECTORIZATION;
+	}
+	VectorizedComplex& setValues(double commonRealValue, double commonImagValue) {
+		setVectorValues(_reals, commonRealValue);
+		setVectorValues(_imags, commonImagValue);
+		return *this;
+	}
+	VectorizedComplex& setRealValues(double commonRealValue) {
+		setVectorValues(_reals, commonRealValue);
+		return *this;
+	}
+	VectorizedComplex& setImagValues(double commonImagValue) {
+		setVectorValues(_imags, commonImagValue);
+		return *this;
+	}
+	VectorizedComplex& operator=(const VectorizedComplex& other) = default;
+    void real(std::size_t i, double realValue) {
+    	_reals[i] = realValue;
     }
-    NumberType& operator[](std::size_t i) {
-        return _numbers[i];
-    }
-    const std::array<NumberType, N>& numbers() const {
-    	return _numbers;
-    }
-	friend VectorizedNumbers operator+(const VectorizedNumbers& lhs, const VectorizedNumbers& rhs) {
-		VectorizedNumbers resultNumbers;
-		for (std::size_t i=0; i<N; i++) {
-			const NumberType& lhsNumber = lhs._numbers[i];
-			const NumberType& rhsNumber = rhs._numbers[i];
-			resultNumbers._numbers[i] = lhsNumber + rhsNumber;
+    VectorizedComplex square() const {
+		VectorizedComplex resultNumbers;
+		auto reals = reinterpret_cast<const SimdRegisterType*>(_reals);
+		auto imags = reinterpret_cast<const SimdRegisterType*>(_imags);
+		auto resultReals = reinterpret_cast<SimdRegisterType*>(resultNumbers._reals);
+		auto resultImags = reinterpret_cast<SimdRegisterType*>(resultNumbers._imags);
+		auto resultSquaredAbs = reinterpret_cast<SimdRegisterType*>(resultNumbers._squaredAbs);
+		for (std::size_t i=0; i<iterations(); i++) {
+			auto realSquared = reals[i] * reals[i];
+			auto imagSquared = imags[i] * imags[i];
+			auto realTimesImag = reals[i] * imags[i];
+			resultReals[i] = realSquared - imagSquared;
+			resultImags[i] = realTimesImag + realTimesImag;
+			resultSquaredAbs[i] = realSquared + imagSquared;
 		}
 		return resultNumbers;
-	}
-	friend VectorizedNumbers operator*(const VectorizedNumbers& lhs, const VectorizedNumbers& rhs) {
-		VectorizedNumbers resultNumbers;
-		for (std::size_t i=0; i<N; i++) {
-			const NumberType& lhsNumber = lhs._numbers[i];
-			const NumberType& rhsNumber = rhs._numbers[i];
-			resultNumbers._numbers[i] = lhsNumber * rhsNumber;
+    }
+    double squaredAbs(std::size_t i) const {
+    	return _squaredAbs[i];
+    }
+	friend VectorizedComplex operator+(const VectorizedComplex& lhs, const VectorizedComplex& rhs) {
+		VectorizedComplex resultNumbers;
+		auto lhsReals = reinterpret_cast<const SimdRegisterType*>(lhs._reals);
+		auto lhsImags = reinterpret_cast<const SimdRegisterType*>(lhs._imags);
+		auto rhsReals = reinterpret_cast<const SimdRegisterType*>(rhs._reals);
+		auto rhsImags = reinterpret_cast<const SimdRegisterType*>(rhs._imags);
+		auto resultReals = reinterpret_cast<SimdRegisterType*>(resultNumbers._reals);
+		auto resultImags = reinterpret_cast<SimdRegisterType*>(resultNumbers._imags);
+		for (std::size_t i=0; i<iterations(); i++) {
+			resultReals[i] = lhsReals[i] + rhsReals[i];
+			resultImags[i] = lhsImags[i] + rhsImags[i];
 		}
 		return resultNumbers;
 	}
 protected:
-	std::array<NumberType, N> _numbers;
-};
-
-template <std::size_t N>
-class VectorizedComplexWithSquaredAbs : public VectorizedNumbers<std::complex<double>, N> {
-public:
-	VectorizedComplexWithSquaredAbs() = default;
-	VectorizedComplexWithSquaredAbs(const VectorizedComplexWithSquaredAbs& other) = default;
-	VectorizedComplexWithSquaredAbs& operator=(const VectorizedComplexWithSquaredAbs& other) = default;
-	VectorizedComplexWithSquaredAbs& operator=(const VectorizedNumbers<std::complex<double>, N>& other) {
-		VectorizedNumbers<std::complex<double>, N>::_numbers = other.numbers();
-		return *this;
-	}
-	VectorizedComplexWithSquaredAbs(const VectorizedNumbers<std::complex<double>, N>& number,
-			const VectorizedNumbers<double, N>& numbersSquaredAbs)
-	: VectorizedNumbers<std::complex<double>, N>(number)
-	, _numbersSquaredAbs(numbersSquaredAbs) {
-	}
-	VectorizedComplexWithSquaredAbs square() {
-		VectorizedNumbers<double, N> squaredAbs;
-		for (std::size_t i=0; i<N; i++) {
-			std::complex<double>& number = VectorizedNumbers<std::complex<double>, N>::_numbers[i];
-			double r2 = number.real() * number.real();
-			double i2 = number.imag() * number.imag();
-			double ri = number.real() * number.imag();
-			squaredAbs[i] = r2 + i2;
-			number.real(r2 - i2);
-			number.imag(ri + ri);
+	static void setVectorValues(double* values, double v) {
+		SimdRegisterType* vValues = reinterpret_cast<SimdRegisterType*>(values);
+		for (std::size_t i=0; i<maxVectorization(); i+=numberOfDoublesInRegister()) {
+			if constexpr (numberOfDoublesInRegister() == 2) {
+				vValues[i] = SimdRegisterType{v, v};
+			} else if constexpr (numberOfDoublesInRegister() == 4) {
+				vValues[i] = SimdRegisterType{v, v, v, v};
+			} else if constexpr (numberOfDoublesInRegister() == 8) {
+				vValues[i] = SimdRegisterType{v, v, v, v, v, v, v, v};
+			}
 		}
-		return VectorizedComplexWithSquaredAbs(*this, squaredAbs);
-	}
-	VectorizedNumbers<double, N> squaredAbs() const {
-		return _numbersSquaredAbs;
 	}
 private:
-	VectorizedNumbers<double, N> _numbersSquaredAbs;
+	double _reals[MAX_VECTORIZATION];
+	double _imags[MAX_VECTORIZATION];
+	double _squaredAbs[MAX_VECTORIZATION];
 };
 
+template <class SimdRegisterType, std::size_t MAX_VECTORIZATION>
 class CalculatorThread {
 public:
+	typedef VectorizedComplex<SimdRegisterType, MAX_VECTORIZATION> VComplex;
+
 	CalculatorThread(std::size_t yBegin, std::size_t yRaster, const std::complex<double>& cFirst, const std::complex<double>& cLast,
 			std::size_t maxIterations, double pointOfNoReturn, PortableBinaryBitmap& pbm)
 	: _yBegin(yBegin)
@@ -204,36 +222,30 @@ public:
 		for (std::size_t y=_yBegin; y<_pbm.height(); y+=_yRaster) {
 			double cImagValue = _cFirst.imag() + y*rasterImag;
 			std::vector<bool> mandelbrotLine(_pbm.width());
-			constexpr std::size_t vectorizationConcurrency = 8;
-			VectorizedComplexWithSquaredAbs<vectorizationConcurrency> z;
-			VectorizedNumbers<std::complex<double>, vectorizationConcurrency> c;
-			VectorizedNumbers<std::size_t, vectorizationConcurrency> numberOfIterations;
-			std::size_t startX = 0;
-			for (std::size_t x=0; x<_pbm.width(); x++) {
-				double cRealValue = _cFirst.real() + x*rasterReal;
-				std::size_t i = x%vectorizationConcurrency;
-				z[i] = std::complex<double>(0, 0);
-				c[i] = std::complex<double>(cRealValue, cImagValue);
-				numberOfIterations[i] = 0;
-				if (i==7) {
-					std::size_t i=0;
-					bool anyZNotExceeded = true;
-					while (anyZNotExceeded && i < _maxIterations) {
-						auto zSquare = z.square();
-						z = zSquare + c;
-						i++;
-						anyZNotExceeded = false;
-						for (std::size_t j=0; j<vectorizationConcurrency; j++) {
-							if (zSquare.squaredAbs()[j] < squaredPointOfNoReturn) {
-								numberOfIterations[j] = i;
-								anyZNotExceeded = true;
-							}
+			std::array<std::size_t, VComplex::maxVectorization()> numberOfIterations;
+			std::fill(numberOfIterations.begin(), numberOfIterations.end(), 0);
+			for (std::size_t x=0; x<_pbm.width(); x+=VComplex::maxVectorization()) {
+				VComplex z(0, 0);
+				VComplex c(cImagValue, VComplex::i);
+				for (std::size_t i=0; i<VComplex::maxVectorization(); i++) {
+					double cRealValue = _cFirst.real() + (x+i)*rasterReal;
+					c.real(i, cRealValue);
+				}
+				std::size_t i=0;
+				bool anyZNotExceeded = true;
+				while (anyZNotExceeded && i < _maxIterations) {
+					z = z.square() + c;
+					i++;
+					anyZNotExceeded = false;
+					for (std::size_t j=0; j<VComplex::maxVectorization(); j++) {
+						if (z.squaredAbs(j) < squaredPointOfNoReturn) {
+							numberOfIterations[j] = i;
+							anyZNotExceeded = true;
 						}
 					}
-					for (std::size_t j=0; j<vectorizationConcurrency; j++) {
-						mandelbrotLine[startX+j] = (numberOfIterations[j] < _maxIterations);
-					}
-					startX += vectorizationConcurrency;
+				}
+				for (std::size_t j=0; j<VComplex::maxVectorization(); j++) {
+					mandelbrotLine[x+j] = (numberOfIterations[j] < _maxIterations);
 				}
 			}
 			_pbm.setNextLine(y, mandelbrotLine);
@@ -259,7 +271,7 @@ int main() {
 	std::size_t numberOfThreads = std::thread::hardware_concurrency();
 	std::vector<std::thread> threads;
 	for (std::size_t i=0; i<numberOfThreads; i++) {
-		CalculatorThread calculatorThread(i, numberOfThreads, cFirst, cLast, maxIterations, pointOfNoReturn, pbm);
+		CalculatorThread<__m256d, 8> calculatorThread(i, numberOfThreads, cFirst, cLast, maxIterations, pointOfNoReturn, pbm);
 		threads.push_back(std::thread(calculatorThread));
 	}
 	for (auto& t : threads) {
