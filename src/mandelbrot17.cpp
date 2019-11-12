@@ -110,80 +110,69 @@ private:
 template <class SimdRegisterType, std::size_t MAX_VECTORIZATION>
 class VectorizedComplex {
 public:
-	static constexpr std::size_t numberOfDoublesInRegister() {
-		return sizeof(SimdRegisterType) / sizeof(double);
-	}
-	static constexpr std::size_t iterations() {
-		return MAX_VECTORIZATION / numberOfDoublesInRegister();
-	}
 	static constexpr std::size_t maxVectorization() {
 		return MAX_VECTORIZATION;
 	}
+	static constexpr std::size_t numberOfDoublesInRegister() {
+		return sizeof(SimdRegisterType) / sizeof(double);
+	}
+	static constexpr std::size_t numberOfRegisters() {
+		return MAX_VECTORIZATION / numberOfDoublesInRegister();
+	}
 	static struct imaginary {
 	} i;
+	struct SquareIntermediateResult {
+	    double squaredAbs(std::size_t i) const {
+	    	return reinterpret_cast<const double*>(_vSquaredAbs)[i];
+	    }
+		SimdRegisterType _vSquaredAbs[numberOfRegisters()];
+	};
 	VectorizedComplex() = default;
-	VectorizedComplex(const VectorizedComplex& other) = default;
 	VectorizedComplex(double commonRealValue, double commonImagValue) {
-		setVectorValues(_reals, commonRealValue);
-		setVectorValues(_imags, commonImagValue);
+		setVectorValues(_vReals, commonRealValue);
+		setVectorValues(_vImags, commonImagValue);
 	}
 	VectorizedComplex(double commonImagValue, imaginary i) {
-		setVectorValues(_imags, commonImagValue);
+		setVectorValues(_vImags, commonImagValue);
 	}
-	VectorizedComplex& operator=(const VectorizedComplex& other) = default;
 	VectorizedComplex& setValues(double commonRealValue, double commonImagValue) {
-		setVectorValues(_reals, commonRealValue);
-		setVectorValues(_imags, commonImagValue);
+		setVectorValues(_vReals, commonRealValue);
+		setVectorValues(_vImags, commonImagValue);
 		return *this;
 	}
 	VectorizedComplex& setRealValues(double commonRealValue) {
-		setVectorValues(_reals, commonRealValue);
+		setVectorValues(_vReals, commonRealValue);
 		return *this;
 	}
 	VectorizedComplex& setImagValues(double commonImagValue) {
-		setVectorValues(_imags, commonImagValue);
+		setVectorValues(_vImags, commonImagValue);
 		return *this;
 	}
     void real(std::size_t i, double realValue) {
-    	_reals[i] = realValue;
+    	reinterpret_cast<double*>(_vReals)[i] = realValue;
     }
-    VectorizedComplex square() const {
+    VectorizedComplex square(SquareIntermediateResult& sir) const {
 		VectorizedComplex resultNumbers;
-		auto reals = reinterpret_cast<const SimdRegisterType*>(_reals);
-		auto imags = reinterpret_cast<const SimdRegisterType*>(_imags);
-		auto resultReals = reinterpret_cast<SimdRegisterType*>(resultNumbers._reals);
-		auto resultImags = reinterpret_cast<SimdRegisterType*>(resultNumbers._imags);
-		auto resultSquaredAbs = reinterpret_cast<SimdRegisterType*>(resultNumbers._squaredAbs);
-		for (std::size_t i=0; i<iterations(); i++) {
-			auto realSquared = reals[i] * reals[i];
-			auto imagSquared = imags[i] * imags[i];
-			auto realTimesImag = reals[i] * imags[i];
-			resultReals[i] = realSquared - imagSquared;
-			resultImags[i] = realTimesImag + realTimesImag;
-			resultSquaredAbs[i] = realSquared + imagSquared;
+		for (std::size_t i=0; i<numberOfRegisters(); i++) {
+			auto realSquared = _vReals[i] * _vReals[i];
+			auto imagSquared = _vImags[i] * _vImags[i];
+			auto realTimesImag = _vReals[i] * _vImags[i];
+			resultNumbers._vReals[i] = realSquared - imagSquared;
+			resultNumbers._vImags[i] = realTimesImag + realTimesImag;
+			sir._vSquaredAbs[i] = realSquared + imagSquared;
 		}
 		return resultNumbers;
     }
-    double squaredAbs(std::size_t i) const {
-    	return _squaredAbs[i];
-    }
 	friend VectorizedComplex operator+(const VectorizedComplex& lhs, const VectorizedComplex& rhs) {
 		VectorizedComplex resultNumbers;
-		auto lhsReals = reinterpret_cast<const SimdRegisterType*>(lhs._reals);
-		auto lhsImags = reinterpret_cast<const SimdRegisterType*>(lhs._imags);
-		auto rhsReals = reinterpret_cast<const SimdRegisterType*>(rhs._reals);
-		auto rhsImags = reinterpret_cast<const SimdRegisterType*>(rhs._imags);
-		auto resultReals = reinterpret_cast<SimdRegisterType*>(resultNumbers._reals);
-		auto resultImags = reinterpret_cast<SimdRegisterType*>(resultNumbers._imags);
-		for (std::size_t i=0; i<iterations(); i++) {
-			resultReals[i] = lhsReals[i] + rhsReals[i];
-			resultImags[i] = lhsImags[i] + rhsImags[i];
+		for (std::size_t i=0; i<numberOfRegisters(); i++) {
+			resultNumbers._vReals[i] = lhs._vReals[i] + rhs._vReals[i];
+			resultNumbers._vImags[i] = lhs._vImags[i] + rhs._vImags[i];
 		}
 		return resultNumbers;
 	}
 protected:
-	static void setVectorValues(double* values, double v) {
-		auto vValues = reinterpret_cast<SimdRegisterType*>(values);
+	static void setVectorValues(SimdRegisterType* vValues, double v) {
 		for (std::size_t i=0; i<maxVectorization(); i+=numberOfDoublesInRegister()) {
 			if constexpr (numberOfDoublesInRegister() == 2) {
 				*vValues = SimdRegisterType{v, v};
@@ -196,9 +185,8 @@ protected:
 		}
 	}
 private:
-	double _reals[MAX_VECTORIZATION];
-	double _imags[MAX_VECTORIZATION];
-	double _squaredAbs[MAX_VECTORIZATION];
+	SimdRegisterType _vReals[numberOfRegisters()];
+	SimdRegisterType _vImags[numberOfRegisters()];
 };
 
 template <class SimdRegisterType, std::size_t MAX_VECTORIZATION>
@@ -234,12 +222,13 @@ public:
 				}
 				std::size_t i=0;
 				bool anyZNotExceeded = true;
+				typename VComplex::SquareIntermediateResult sir;
 				while (anyZNotExceeded && i < _maxIterations) {
-					z = z.square() + c;
+					z = z.square(sir) + c;
 					i++;
 					anyZNotExceeded = false;
 					for (std::size_t j=0; j<VComplex::maxVectorization(); j++) {
-						if (z.squaredAbs(j) < squaredPointOfNoReturn) {
+						if (sir.squaredAbs(j) < squaredPointOfNoReturn) {
 							numberOfIterations[j] = i;
 							anyZNotExceeded = true;
 						}
