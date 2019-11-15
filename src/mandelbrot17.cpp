@@ -11,7 +11,7 @@
 #include <array>
 #include <vector>
 #include <utility>
-#include <queue>
+#include <list>
 #include <complex>
 #include <algorithm>
 #include <map>
@@ -29,6 +29,7 @@ public:
 	, _width (width)
 	, _height (height)
 	, _lineSize (_width / BITS_IN_BYTE)
+	, _writingFile (false)
 	, _currentY (0) {
 		_file << "P4" << '\n';
 		_file << _width << ' ' << _height << '\n';
@@ -42,41 +43,59 @@ public:
 	std::size_t lineSize() const {
 		return _lineSize;
 	}
-	void setNextLine(std::size_t y, const std::vector<char>& line) {
-		std::unique_lock<std::mutex> lock (_mtx);
-		if (y != _currentY) {
-			_pendingLines[y] = line;
-			return;
+	void setNextLine(std::size_t y, std::vector<char>&& line) {
+		std::lock_guard lock (_mtx);
+		_lines.emplace_back(HorizontalLine{y, std::move(line)});
+		if (!_writingFile) {
+			writeFile();
 		}
-		setNextLine(line);
-		std::vector<int> yOfLinesDone;
-		for (auto it = _pendingLines.begin(); it!=_pendingLines.end(); ++it) {
-			std::size_t smallestY = it->first;
-			if (smallestY == _currentY) {
-				setNextLine(it->second);
-				yOfLinesDone.push_back(smallestY);
-			}
-		}
-		for (int yOfLineDone : yOfLinesDone) {
-			_pendingLines.erase(yOfLineDone);
-		}
-		_file.flush();
 	}
 protected:
-	void setNextLine(const std::vector<char>& line) {
-		for (char pixelGroup : line) {
-			_file.write(&pixelGroup, sizeof(char));
+	struct HorizontalLine {
+		bool operator<(const HorizontalLine& other) {
+			return y < other.y;
 		}
-		_currentY++;
+		std::size_t y;
+		std::vector<char> line;
+	};
+	void writeFile() {
+		std::vector<std::vector<char>> pendingLines;
+		{
+			std::lock_guard lock (_mtx);
+			_lines.sort();
+			std::size_t nextY = _currentY;
+			while (!_lines.empty()) {
+				const auto& line = _lines.front();
+				if (line.y != nextY) {
+					break;
+				}
+				pendingLines.push_back(std::move(line.line));
+				_lines.pop_front();
+				nextY++;
+			}
+			_currentY = nextY;
+			_writingFile = true;
+		}
+		for (const auto& line : pendingLines) {
+			for (char pixelGroup : line) {
+				_file.write(&pixelGroup, sizeof(char));
+			}
+		}
+		_file.flush();
+		{
+			std::lock_guard lock (_mtx);
+			_writingFile = false;
+		}
 	}
 private:
-	std::mutex _mtx;
+	std::recursive_mutex _mtx;
 	std::ofstream _file;
 	std::size_t _width;
 	std::size_t _height;
 	std::size_t _lineSize;
+	std::list<HorizontalLine> _lines;
+	bool _writingFile;
 	std::size_t _currentY;
-	std::map<int, std::vector<char>> _pendingLines;
 };
 
 template <class SimdRegisterType, std::size_t MAX_VECTORIZATION>
@@ -216,7 +235,7 @@ public:
 				}
 				mandelbrotLine[x/BITS_IN_BYTE] = absLessEqualPointOfNoReturn;
 			}
-			_pbm.setNextLine(y, mandelbrotLine);
+			_pbm.setNextLine(y, std::move(mandelbrotLine));
 		}
 	}
 private:
