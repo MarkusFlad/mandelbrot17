@@ -20,12 +20,15 @@
 #include <iostream>
 #include <immintrin.h>
 
+constexpr std::size_t BITS_IN_BYTE = 8;
+
 class PortableBinaryBitmap {
 public:
 	PortableBinaryBitmap(const std::string& filename, std::size_t width, std::size_t height)
 	: _file (filename)
 	, _width (width)
 	, _height (height)
+	, _lineSize (_width / BITS_IN_BYTE)
 	, _currentY (0) {
 		_file << "P4" << '\n';
 		_file << _width << ' ' << _height << '\n';
@@ -36,7 +39,10 @@ public:
 	std::size_t height() const {
 		return _height;
 	}
-	void setNextLine(std::size_t y, const std::vector<bool>& line) {
+	std::size_t lineSize() const {
+		return _lineSize;
+	}
+	void setNextLine(std::size_t y, const std::vector<char>& line) {
 		std::unique_lock<std::mutex> lock (_mtx);
 		if (y != _currentY) {
 			_pendingLines[y] = line;
@@ -57,44 +63,9 @@ public:
 		_file.flush();
 	}
 protected:
-	void setNextLine(const std::vector<bool>& line) {
-		int currentBitPos = 0;
-		char nextByte = 0;
-		for (auto isBlack : line) {
-			if (!isBlack) {
-				switch(currentBitPos) {
-				case 7:
-					nextByte |= 0x01;
-					break;
-				case 6:
-					nextByte |= 0x02;
-					break;
-				case 5:
-					nextByte |= 0x04;
-					break;
-				case 4:
-					nextByte |= 0x08;
-					break;
-				case 3:
-					nextByte |= 0x10;
-					break;
-				case 2:
-					nextByte |= 0x20;
-					break;
-				case 1:
-					nextByte |= 0x40;
-					break;
-				case 0:
-					nextByte |= 0x80;
-					break;
-				}
-			}
-			currentBitPos++;
-			if (currentBitPos >= 8) {
-				_file.write(&nextByte, sizeof(char));
-				currentBitPos = 0;
-				nextByte = 0;
-			}
+	void setNextLine(const std::vector<char>& line) {
+		for (char pixelGroup : line) {
+			_file.write(&pixelGroup, sizeof(char));
 		}
 		_currentY++;
 	}
@@ -103,8 +74,9 @@ private:
 	std::ofstream _file;
 	std::size_t _width;
 	std::size_t _height;
+	std::size_t _lineSize;
 	std::size_t _currentY;
-	std::map<int, std::vector<bool>> _pendingLines;
+	std::map<int, std::vector<char>> _pendingLines;
 };
 
 template <class SimdRegisterType, std::size_t MAX_VECTORIZATION>
@@ -122,9 +94,24 @@ public:
 	static struct imaginary {
 	} i;
 	struct SquareIntermediateResult {
-	    double squaredAbs(std::size_t i) const {
-	    	return reinterpret_cast<const double*>(_vSquaredAbs)[i];
-	    }
+		double squaredAbs(std::size_t i) const {
+			return reinterpret_cast<const double*>(_vSquaredAbs)[i];
+		}
+		char squaredAbsLessEqualThen(double threshold) {
+			static_assert(MAX_VECTORIZATION == 8, "squaredAbsLessEqualThen() "
+					"only implemented for MAX_VECTORIZATION == 8");
+			double* squaredAbsArray = reinterpret_cast<double*>(_vSquaredAbs);
+			char result = 0;
+			if (squaredAbsArray[0] <= threshold) result |= 0b10000000;
+			if (squaredAbsArray[1] <= threshold) result |= 0b01000000;
+			if (squaredAbsArray[2] <= threshold) result |= 0b00100000;
+			if (squaredAbsArray[3] <= threshold) result |= 0b00010000;
+			if (squaredAbsArray[4] <= threshold) result |= 0b00001000;
+			if (squaredAbsArray[5] <= threshold) result |= 0b00000100;
+			if (squaredAbsArray[6] <= threshold) result |= 0b00000010;
+			if (squaredAbsArray[7] <= threshold) result |= 0b00000001;
+			return result;
+		}
 		SimdRegisterType _vSquaredAbs[numberOfRegisters()];
 	};
 	VectorizedComplex() = default;
@@ -148,10 +135,10 @@ public:
 		setVectorValues(_vImags, commonImagValue);
 		return *this;
 	}
-    void real(std::size_t i, double realValue) {
-    	reinterpret_cast<double*>(_vReals)[i] = realValue;
-    }
-    VectorizedComplex square(SquareIntermediateResult& sir) const {
+	void real(std::size_t i, double realValue) {
+		reinterpret_cast<double*>(_vReals)[i] = realValue;
+	}
+	VectorizedComplex square(SquareIntermediateResult& sir) const {
 		VectorizedComplex resultNumbers;
 		for (std::size_t i=0; i<numberOfRegisters(); i++) {
 			auto realSquared = _vReals[i] * _vReals[i];
@@ -162,7 +149,7 @@ public:
 			sir._vSquaredAbs[i] = realSquared + imagSquared;
 		}
 		return resultNumbers;
-    }
+	}
 	friend VectorizedComplex operator+(const VectorizedComplex& lhs, const VectorizedComplex& rhs) {
 		VectorizedComplex resultNumbers;
 		for (std::size_t i=0; i<numberOfRegisters(); i++) {
@@ -206,13 +193,11 @@ public:
 	}
 	void operator()() const {
 		double rasterReal = (_cLast.real() - _cFirst.real()) / _pbm.width();
-		double rasterImag = (_cLast.imag() - _cFirst.imag()) / _pbm.width();
+		double rasterImag = (_cLast.imag() - _cFirst.imag()) / _pbm.height();
 		double squaredPointOfNoReturn = _pointOfNoReturn * _pointOfNoReturn;
 		for (std::size_t y=_yBegin; y<_pbm.height(); y+=_yRaster) {
 			double cImagValue = _cFirst.imag() + y*rasterImag;
-			std::vector<bool> mandelbrotLine(_pbm.width());
-			std::array<std::size_t, VComplex::maxVectorization()> numberOfIterations;
-			std::fill(numberOfIterations.begin(), numberOfIterations.end(), 0);
+			std::vector<char> mandelbrotLine(_pbm.lineSize());
 			for (std::size_t x=0; x<_pbm.width(); x+=VComplex::maxVectorization()) {
 				VComplex z(0, 0);
 				VComplex c(cImagValue, VComplex::i);
@@ -220,23 +205,16 @@ public:
 					double cRealValue = _cFirst.real() + (x+i)*rasterReal;
 					c.real(i, cRealValue);
 				}
-				std::size_t i=0;
-				bool anyZNotExceeded = true;
+				char absLessEqualPointOfNoReturn = 0;
 				typename VComplex::SquareIntermediateResult sir;
-				while (anyZNotExceeded && i < _maxIterations) {
+				for (std::size_t i=0; i<_maxIterations; i++) {
 					z = z.square(sir) + c;
-					i++;
-					anyZNotExceeded = false;
-					for (std::size_t j=0; j<VComplex::maxVectorization(); j++) {
-						if (sir.squaredAbs(j) < squaredPointOfNoReturn) {
-							numberOfIterations[j] = i;
-							anyZNotExceeded = true;
-						}
+					absLessEqualPointOfNoReturn = sir.squaredAbsLessEqualThen(squaredPointOfNoReturn);
+					if (!absLessEqualPointOfNoReturn) {
+						break;
 					}
 				}
-				for (std::size_t j=0; j<VComplex::maxVectorization(); j++) {
-					mandelbrotLine[x+j] = (numberOfIterations[j] < _maxIterations);
-				}
+				mandelbrotLine[x/BITS_IN_BYTE] = absLessEqualPointOfNoReturn;
 			}
 			_pbm.setNextLine(y, mandelbrotLine);
 		}
