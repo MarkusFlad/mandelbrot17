@@ -193,11 +193,13 @@ public:
 	typedef typename SimdUnion::NumberType NumberType;
 
 	CalculatorThread(const std::complex<NumberType>& cFirst, NumberType rasterReal, NumberType rasterImag,
-			std::size_t maxIterations, NumberType pointOfNoReturn, PortableBinaryBitmap::Canvas& canvas)
+			std::size_t maxIterations, std::size_t iterationsWithoutCheck,
+			NumberType pointOfNoReturn, PortableBinaryBitmap::Canvas& canvas)
 	: _cFirst(cFirst)
 	, _rasterReal(rasterReal)
 	, _rasterImag(rasterImag)
-	, _maxIterations(maxIterations)
+	, _maxOuterIterations(maxIterations/iterationsWithoutCheck)
+	, _iterationsWithoutCheck(iterationsWithoutCheck)
 	, _pointOfNoReturn(pointOfNoReturn)
 	, _canvas(canvas) {
 	}
@@ -217,8 +219,10 @@ public:
 				}
 				char absLessEqualPointOfNoReturn = 0;
 				typename VComplex::SquareIntermediateResult sir;
-				for (std::size_t i=0; i<_maxIterations; i++) {
-					z = z.square(sir) + c;
+				for (std::size_t i=0; i<_maxOuterIterations; i++) {
+					for (std::size_t j=0; j<_iterationsWithoutCheck; j++) {
+						z = z.square(sir) + c;
+					}
 					absLessEqualPointOfNoReturn = sir.squaredAbsLessEqualThen(squaredPointOfNoReturn);
 					if (!absLessEqualPointOfNoReturn) {
 						break;
@@ -232,7 +236,8 @@ private:
 	std::complex<NumberType> _cFirst;
 	NumberType _rasterReal;
 	NumberType _rasterImag;
-	std::size_t _maxIterations;
+	std::size_t _maxOuterIterations;
+	std::size_t _iterationsWithoutCheck;
 	NumberType _pointOfNoReturn;
 	PortableBinaryBitmap::Canvas& _canvas;
 };
@@ -251,6 +256,7 @@ int main() {
 	const ComplexNumber cFirst (-1.5, -1.0);
 	const ComplexNumber cLast (0.5, 1.0);
 	const std::size_t maxIterations = 50;
+	const std::size_t iterationsWithoutCheck = 5;
 	const SystemSimdUnion::NumberType pointOfNoReturn = 4.0;
 	PortableBinaryBitmap pbm ("mandelbrot17.pbm", N, N);
 	std::size_t numberOfThreads = std::thread::hardware_concurrency();
@@ -261,7 +267,8 @@ int main() {
 	SystemSimdUnion::NumberType nextImag = cFirst.imag();
 	for (auto& canvas : canvasVector) {
 		ComplexNumber cNextFirst(cFirst.real(), nextImag);
-		CalculatorThread<SystemSimdUnion> calculatorThread(cNextFirst, rasterReal, rasterImag, maxIterations, pointOfNoReturn, canvas);
+		CalculatorThread<SystemSimdUnion> calculatorThread(cNextFirst, rasterReal, rasterImag,
+				maxIterations, iterationsWithoutCheck, pointOfNoReturn, canvas);
 		threads.push_back(std::thread(calculatorThread));
 		nextImag += rasterImag * canvas.height();
 	}
