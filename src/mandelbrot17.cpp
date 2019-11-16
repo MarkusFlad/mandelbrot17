@@ -98,107 +98,112 @@ private:
 	std::size_t _currentY;
 };
 
-template <class SimdRegisterType, std::size_t MAX_VECTORIZATION>
-class VectorizedComplex {
-public:
-	static constexpr std::size_t maxVectorization() {
-		return MAX_VECTORIZATION;
+union Simd256DoubleOctet {
+	typedef __m256d SimdRegisterType;
+	static constexpr std::size_t size() {
+		return sizeof(sizeof(val));
 	}
 	static constexpr std::size_t numberOfDoublesInRegister() {
-		return sizeof(SimdRegisterType) / sizeof(double);
+		return sizeof(__m256d) / sizeof(double);
 	}
 	static constexpr std::size_t numberOfRegisters() {
-		return MAX_VECTORIZATION / numberOfDoublesInRegister();
+		return size() / numberOfDoublesInRegister();
 	}
+	__m256d reg[2];
+	double val[8];
+};
+
+template <class SimdDoubleOctet>
+class VectorizedComplex {
+public:
 	static struct imaginary {
 	} i;
 	struct SquareIntermediateResult {
 		double squaredAbs(std::size_t i) const {
-			return reinterpret_cast<const double*>(_vSquaredAbs)[i];
+			return _squaredAbs.val[i];
 		}
 		char squaredAbsLessEqualThen(double threshold) {
-			static_assert(MAX_VECTORIZATION == 8, "squaredAbsLessEqualThen() "
-					"only implemented for MAX_VECTORIZATION == 8");
-			double* squaredAbsArray = reinterpret_cast<double*>(_vSquaredAbs);
 			char result = 0;
-			if (squaredAbsArray[0] <= threshold) result |= 0b10000000;
-			if (squaredAbsArray[1] <= threshold) result |= 0b01000000;
-			if (squaredAbsArray[2] <= threshold) result |= 0b00100000;
-			if (squaredAbsArray[3] <= threshold) result |= 0b00010000;
-			if (squaredAbsArray[4] <= threshold) result |= 0b00001000;
-			if (squaredAbsArray[5] <= threshold) result |= 0b00000100;
-			if (squaredAbsArray[6] <= threshold) result |= 0b00000010;
-			if (squaredAbsArray[7] <= threshold) result |= 0b00000001;
+			if (_squaredAbs.val[0] <= threshold) result |= 0b10000000;
+			if (_squaredAbs.val[1] <= threshold) result |= 0b01000000;
+			if (_squaredAbs.val[2] <= threshold) result |= 0b00100000;
+			if (_squaredAbs.val[3] <= threshold) result |= 0b00010000;
+			if (_squaredAbs.val[4] <= threshold) result |= 0b00001000;
+			if (_squaredAbs.val[5] <= threshold) result |= 0b00000100;
+			if (_squaredAbs.val[6] <= threshold) result |= 0b00000010;
+			if (_squaredAbs.val[7] <= threshold) result |= 0b00000001;
 			return result;
 		}
-		SimdRegisterType _vSquaredAbs[numberOfRegisters()];
+		SimdDoubleOctet _squaredAbs;
 	};
 	VectorizedComplex() = default;
 	VectorizedComplex(double commonRealValue, double commonImagValue) {
-		setVectorValues(_vReals, commonRealValue);
-		setVectorValues(_vImags, commonImagValue);
+		setVectorValues(_reals, commonRealValue);
+		setVectorValues(_imags, commonImagValue);
 	}
 	VectorizedComplex(double commonImagValue, imaginary i) {
-		setVectorValues(_vImags, commonImagValue);
+		setVectorValues(_imags, commonImagValue);
 	}
 	VectorizedComplex& setValues(double commonRealValue, double commonImagValue) {
-		setVectorValues(_vReals, commonRealValue);
-		setVectorValues(_vImags, commonImagValue);
+		setVectorValues(_reals, commonRealValue);
+		setVectorValues(_imags, commonImagValue);
 		return *this;
 	}
 	VectorizedComplex& setRealValues(double commonRealValue) {
-		setVectorValues(_vReals, commonRealValue);
+		setVectorValues(_reals, commonRealValue);
 		return *this;
 	}
 	VectorizedComplex& setImagValues(double commonImagValue) {
-		setVectorValues(_vImags, commonImagValue);
+		setVectorValues(_imags, commonImagValue);
 		return *this;
 	}
 	void real(std::size_t i, double realValue) {
-		reinterpret_cast<double*>(_vReals)[i] = realValue;
+		_reals.val[i] = realValue;
 	}
 	VectorizedComplex square(SquareIntermediateResult& sir) const {
 		VectorizedComplex resultNumbers;
-		for (std::size_t i=0; i<numberOfRegisters(); i++) {
-			auto realSquared = _vReals[i] * _vReals[i];
-			auto imagSquared = _vImags[i] * _vImags[i];
-			auto realTimesImag = _vReals[i] * _vImags[i];
-			resultNumbers._vReals[i] = realSquared - imagSquared;
-			resultNumbers._vImags[i] = realTimesImag + realTimesImag;
-			sir._vSquaredAbs[i] = realSquared + imagSquared;
+		for (std::size_t i=0; i<SimdDoubleOctet::numberOfRegisters(); i++) {
+			auto realSquared = _reals.reg[i] * _reals.reg[i];
+			auto imagSquared = _imags.reg[i] * _imags.reg[i];
+			auto realTimesImag = _reals.reg[i] * _imags.reg[i];
+			resultNumbers._reals.reg[i] = realSquared - imagSquared;
+			resultNumbers._imags.reg[i] = realTimesImag + realTimesImag;
+			sir._squaredAbs.reg[i] = realSquared + imagSquared;
 		}
 		return resultNumbers;
 	}
 	friend VectorizedComplex operator+(const VectorizedComplex& lhs, const VectorizedComplex& rhs) {
 		VectorizedComplex resultNumbers;
-		for (std::size_t i=0; i<numberOfRegisters(); i++) {
-			resultNumbers._vReals[i] = lhs._vReals[i] + rhs._vReals[i];
-			resultNumbers._vImags[i] = lhs._vImags[i] + rhs._vImags[i];
+		for (std::size_t i=0; i<SimdDoubleOctet::numberOfRegisters(); i++) {
+			resultNumbers._reals.reg[i] = lhs._reals.reg[i] + rhs._reals.reg[i];
+			resultNumbers._imags.reg[i] = lhs._imags.reg[i] + rhs._imags.reg[i];
 		}
 		return resultNumbers;
 	}
 protected:
-	static void setVectorValues(SimdRegisterType* vValues, double v) {
-		for (std::size_t i=0; i<maxVectorization(); i+=numberOfDoublesInRegister()) {
-			if constexpr (numberOfDoublesInRegister() == 2) {
+	static void setVectorValues(SimdDoubleOctet& simdDoubleOctet, double v) {
+		typedef typename SimdDoubleOctet::SimdRegisterType SimdRegisterType;
+		typename SimdDoubleOctet::SimdRegisterType* vValues = simdDoubleOctet.reg;
+		for (std::size_t i=0; i<SimdDoubleOctet::size(); i+=SimdDoubleOctet::numberOfDoublesInRegister()) {
+			if constexpr (simdDoubleOctet.numberOfDoublesInRegister() == 2) {
 				*vValues = SimdRegisterType{v, v};
-			} else if constexpr (numberOfDoublesInRegister() == 4) {
+			} else if constexpr (simdDoubleOctet.numberOfDoublesInRegister() == 4) {
 				*vValues = SimdRegisterType{v, v, v, v};
-			} else if constexpr (numberOfDoublesInRegister() == 8) {
+			} else if constexpr (simdDoubleOctet.numberOfDoublesInRegister() == 8) {
 				*vValues = SimdRegisterType{v, v, v, v, v, v, v, v};
 			}
 			vValues++;
 		}
 	}
 private:
-	SimdRegisterType _vReals[numberOfRegisters()];
-	SimdRegisterType _vImags[numberOfRegisters()];
+	SimdDoubleOctet _reals;
+	SimdDoubleOctet _imags;
 };
 
-template <class SimdRegisterType, std::size_t MAX_VECTORIZATION>
+template <class SimdDoubleOctet>
 class CalculatorThread {
 public:
-	typedef VectorizedComplex<SimdRegisterType, MAX_VECTORIZATION> VComplex;
+	typedef VectorizedComplex<SimdDoubleOctet> VComplex;
 
 	CalculatorThread(std::size_t yBegin, std::size_t yRaster, const std::complex<double>& cFirst, const std::complex<double>& cLast,
 			std::size_t maxIterations, double pointOfNoReturn, PortableBinaryBitmap& pbm)
@@ -217,10 +222,10 @@ public:
 		for (std::size_t y=_yBegin; y<_pbm.height(); y+=_yRaster) {
 			double cImagValue = _cFirst.imag() + y*rasterImag;
 			std::vector<char> mandelbrotLine(_pbm.lineSize());
-			for (std::size_t x=0; x<_pbm.width(); x+=VComplex::maxVectorization()) {
+			for (std::size_t x=0; x<_pbm.width(); x+=SimdDoubleOctet::size()) {
 				VComplex z(0, 0);
 				VComplex c(cImagValue, VComplex::i);
-				for (std::size_t i=0; i<VComplex::maxVectorization(); i++) {
+				for (std::size_t i=0; i<SimdDoubleOctet::size(); i++) {
 					double cRealValue = _cFirst.real() + (x+i)*rasterReal;
 					c.real(i, cRealValue);
 				}
@@ -258,7 +263,7 @@ int main() {
 	std::size_t numberOfThreads = std::thread::hardware_concurrency();
 	std::vector<std::thread> threads;
 	for (std::size_t i=0; i<numberOfThreads; i++) {
-		CalculatorThread<__m256d, 8> calculatorThread(i, numberOfThreads, cFirst, cLast, maxIterations, pointOfNoReturn, pbm);
+		CalculatorThread<Simd256DoubleOctet> calculatorThread(i, numberOfThreads, cFirst, cLast, maxIterations, pointOfNoReturn, pbm);
 		threads.push_back(std::thread(calculatorThread));
 	}
 	for (auto& t : threads) {
