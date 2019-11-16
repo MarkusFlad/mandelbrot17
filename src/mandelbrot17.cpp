@@ -115,6 +115,8 @@ template <class SimdUnion>
 class VectorizedComplex {
 public:
 	typedef typename SimdUnion::NumberType NumberType;
+	static struct Imaginary {
+	} i;
 	struct SquareIntermediateResult {
 		char squaredAbsLessEqualThen(NumberType threshold) {
 			static_assert(size<SimdUnion>() == 8, "squaredAbsLessEqualThen() "
@@ -136,6 +138,12 @@ public:
 	VectorizedComplex(NumberType commonRealValue, NumberType commonImagValue) {
 		setVectorValues(_reals, commonRealValue);
 		setVectorValues(_imags, commonImagValue);
+	}
+	VectorizedComplex(NumberType commonImagValue, Imaginary i) {
+		setVectorValues(_imags, commonImagValue);
+	}
+	void real(std::size_t i, NumberType realValue) {
+		_reals.val[i] = realValue;
 	}
 	VectorizedComplex square(SquareIntermediateResult& sir) const {
 		VectorizedComplex resultNumbers;
@@ -203,7 +211,10 @@ public:
 			NumberType cImagValue = _cFirst.imag() + y*_rasterImag;
 			for (std::size_t x=0; x<_canvas.width(); x+=size<SimdUnion>()) {
 				VComplex z(0, 0);
-				VComplex c(cRealValues[x], cImagValue);
+				VComplex c(cImagValue, VComplex::i);
+				for (std::size_t i=0; i<size<SimdUnion>(); i++) {
+					c.real(i, cRealValues[x+i]);
+				}
 				char absLessEqualPointOfNoReturn = 0;
 				typename VComplex::SquareIntermediateResult sir;
 				for (std::size_t i=0; i<_maxIterations; i++) {
