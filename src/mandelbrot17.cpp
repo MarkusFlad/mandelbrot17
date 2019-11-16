@@ -118,8 +118,20 @@ public:
 	static struct Imaginary {
 	} i;
 	struct SquareIntermediateResult {
-		char squaredAbsLessEqualThen(NumberType threshold) {
+		bool squaredAbsLessEqualThen(NumberType threshold) const {
 			static_assert(size<SimdUnion>() == 8, "squaredAbsLessEqualThen() "
+					"is only implemented for SIMD with size of 8.");
+			return (_squaredAbs.val[0] <= threshold ||
+					_squaredAbs.val[1] <= threshold ||
+					_squaredAbs.val[2] <= threshold ||
+					_squaredAbs.val[3] <= threshold ||
+					_squaredAbs.val[4] <= threshold ||
+					_squaredAbs.val[5] <= threshold ||
+					_squaredAbs.val[6] <= threshold ||
+					_squaredAbs.val[7] <= threshold);
+		}
+		char squaredAbsLessEqualToPixels(NumberType threshold) const {
+			static_assert(size<SimdUnion>() == 8, "squaredAbsLessEqualToPixels() "
 					"is only implemented for SIMD with size of 8.");
 			char result = 0;
 			if (_squaredAbs.val[0] <= threshold) result |= 0b10000000;
@@ -217,18 +229,16 @@ public:
 				for (std::size_t i=0; i<size<SimdUnion>(); i++) {
 					c.real(i, cRealValues[x+i]);
 				}
-				char absLessEqualPointOfNoReturn = 0;
 				typename VComplex::SquareIntermediateResult sir;
 				for (std::size_t i=0; i<_maxOuterIterations; i++) {
 					for (std::size_t j=0; j<_iterationsWithoutCheck; j++) {
 						z = z.square(sir) + c;
 					}
-					absLessEqualPointOfNoReturn = sir.squaredAbsLessEqualThen(squaredPointOfNoReturn);
-					if (!absLessEqualPointOfNoReturn) {
+					if (!sir.squaredAbsLessEqualThen(squaredPointOfNoReturn)) {
 						break;
 					}
 				}
-				_canvas.writePixelGroup(absLessEqualPointOfNoReturn);
+				_canvas.writePixelGroup(sir.squaredAbsLessEqualToPixels(squaredPointOfNoReturn));
 			}
 		}
 	}
