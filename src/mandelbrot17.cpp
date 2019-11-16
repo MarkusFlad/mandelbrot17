@@ -98,31 +98,67 @@ private:
 	std::size_t _currentY;
 };
 
-union Simd256DoubleOctet {
+union Simd128DUnion {
+	typedef double NumberType;
+	typedef __m128d SimdRegisterType;
+	static constexpr std::size_t size() {
+		return sizeof(sizeof(val));
+	}
+	static constexpr std::size_t numberOfNumbersInRegister() {
+		return sizeof(SimdRegisterType) / sizeof(NumberType);
+	}
+	static constexpr std::size_t numberOfRegisters() {
+		return size() / numberOfNumbersInRegister();
+	}
+	SimdRegisterType reg[4];
+	NumberType val[8];
+};
+
+union Simd256DUnion {
+	typedef double NumberType;
 	typedef __m256d SimdRegisterType;
 	static constexpr std::size_t size() {
 		return sizeof(sizeof(val));
 	}
-	static constexpr std::size_t numberOfDoublesInRegister() {
-		return sizeof(__m256d) / sizeof(double);
+	static constexpr std::size_t numberOfNumbersInRegister() {
+		return sizeof(SimdRegisterType) / sizeof(NumberType);
 	}
 	static constexpr std::size_t numberOfRegisters() {
-		return size() / numberOfDoublesInRegister();
+		return size() / numberOfNumbersInRegister();
 	}
-	__m256d reg[2];
-	double val[8];
+	SimdRegisterType reg[2];
+	NumberType val[8];
 };
 
-template <class SimdDoubleOctet>
+union Simd512DUnion {
+	typedef double NumberType;
+	typedef __m512d SimdRegisterType;
+	static constexpr std::size_t size() {
+		return sizeof(sizeof(val));
+	}
+	static constexpr std::size_t numberOfNumbersInRegister() {
+		return sizeof(SimdRegisterType) / sizeof(NumberType);
+	}
+	static constexpr std::size_t numberOfRegisters() {
+		return size() / numberOfNumbersInRegister();
+	}
+	SimdRegisterType reg[1];
+	NumberType val[8];
+};
+
+template <class SimdUnion>
 class VectorizedComplex {
 public:
+	typedef typename SimdUnion::NumberType NumberType;
 	static struct imaginary {
 	} i;
 	struct SquareIntermediateResult {
-		double squaredAbs(std::size_t i) const {
+		NumberType squaredAbs(std::size_t i) const {
 			return _squaredAbs.val[i];
 		}
-		char squaredAbsLessEqualThen(double threshold) {
+		char squaredAbsLessEqualThen(NumberType threshold) {
+			static_assert(SimdUnion::size() == 8, "squaredAbsLessEqualThen() "
+					"is only defined for SIMD with size of 8.");
 			char result = 0;
 			if (_squaredAbs.val[0] <= threshold) result |= 0b10000000;
 			if (_squaredAbs.val[1] <= threshold) result |= 0b01000000;
@@ -134,35 +170,35 @@ public:
 			if (_squaredAbs.val[7] <= threshold) result |= 0b00000001;
 			return result;
 		}
-		SimdDoubleOctet _squaredAbs;
+		SimdUnion _squaredAbs;
 	};
 	VectorizedComplex() = default;
-	VectorizedComplex(double commonRealValue, double commonImagValue) {
+	VectorizedComplex(NumberType commonRealValue, NumberType commonImagValue) {
 		setVectorValues(_reals, commonRealValue);
 		setVectorValues(_imags, commonImagValue);
 	}
-	VectorizedComplex(double commonImagValue, imaginary i) {
+	VectorizedComplex(NumberType commonImagValue, imaginary i) {
 		setVectorValues(_imags, commonImagValue);
 	}
-	VectorizedComplex& setValues(double commonRealValue, double commonImagValue) {
+	VectorizedComplex& setValues(NumberType commonRealValue, NumberType commonImagValue) {
 		setVectorValues(_reals, commonRealValue);
 		setVectorValues(_imags, commonImagValue);
 		return *this;
 	}
-	VectorizedComplex& setRealValues(double commonRealValue) {
+	VectorizedComplex& setRealValues(NumberType commonRealValue) {
 		setVectorValues(_reals, commonRealValue);
 		return *this;
 	}
-	VectorizedComplex& setImagValues(double commonImagValue) {
+	VectorizedComplex& setImagValues(NumberType commonImagValue) {
 		setVectorValues(_imags, commonImagValue);
 		return *this;
 	}
-	void real(std::size_t i, double realValue) {
+	void real(std::size_t i, NumberType realValue) {
 		_reals.val[i] = realValue;
 	}
 	VectorizedComplex square(SquareIntermediateResult& sir) const {
 		VectorizedComplex resultNumbers;
-		for (std::size_t i=0; i<SimdDoubleOctet::numberOfRegisters(); i++) {
+		for (std::size_t i=0; i<SimdUnion::numberOfRegisters(); i++) {
 			auto realSquared = _reals.reg[i] * _reals.reg[i];
 			auto imagSquared = _imags.reg[i] * _imags.reg[i];
 			auto realTimesImag = _reals.reg[i] * _imags.reg[i];
@@ -174,39 +210,40 @@ public:
 	}
 	friend VectorizedComplex operator+(const VectorizedComplex& lhs, const VectorizedComplex& rhs) {
 		VectorizedComplex resultNumbers;
-		for (std::size_t i=0; i<SimdDoubleOctet::numberOfRegisters(); i++) {
+		for (std::size_t i=0; i<SimdUnion::numberOfRegisters(); i++) {
 			resultNumbers._reals.reg[i] = lhs._reals.reg[i] + rhs._reals.reg[i];
 			resultNumbers._imags.reg[i] = lhs._imags.reg[i] + rhs._imags.reg[i];
 		}
 		return resultNumbers;
 	}
 protected:
-	static void setVectorValues(SimdDoubleOctet& simdDoubleOctet, double v) {
-		typedef typename SimdDoubleOctet::SimdRegisterType SimdRegisterType;
-		typename SimdDoubleOctet::SimdRegisterType* vValues = simdDoubleOctet.reg;
-		for (std::size_t i=0; i<SimdDoubleOctet::size(); i+=SimdDoubleOctet::numberOfDoublesInRegister()) {
-			if constexpr (simdDoubleOctet.numberOfDoublesInRegister() == 2) {
+	static void setVectorValues(SimdUnion& simdUnion, NumberType v) {
+		typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
+		typename SimdUnion::SimdRegisterType* vValues = simdUnion.reg;
+		for (std::size_t i=0; i<SimdUnion::size(); i+=SimdUnion::numberOfNumbersInRegister()) {
+			if constexpr (simdUnion.numberOfNumbersInRegister() == 2) {
 				*vValues = SimdRegisterType{v, v};
-			} else if constexpr (simdDoubleOctet.numberOfDoublesInRegister() == 4) {
+			} else if constexpr (simdUnion.numberOfNumbersInRegister() == 4) {
 				*vValues = SimdRegisterType{v, v, v, v};
-			} else if constexpr (simdDoubleOctet.numberOfDoublesInRegister() == 8) {
+			} else if constexpr (simdUnion.numberOfNumbersInRegister() == 8) {
 				*vValues = SimdRegisterType{v, v, v, v, v, v, v, v};
 			}
 			vValues++;
 		}
 	}
 private:
-	SimdDoubleOctet _reals;
-	SimdDoubleOctet _imags;
+	SimdUnion _reals;
+	SimdUnion _imags;
 };
 
-template <class SimdDoubleOctet>
+template <class SimdUnion>
 class CalculatorThread {
 public:
-	typedef VectorizedComplex<SimdDoubleOctet> VComplex;
+	typedef VectorizedComplex<SimdUnion> VComplex;
+	typedef typename SimdUnion::NumberType NumberType;
 
-	CalculatorThread(std::size_t yBegin, std::size_t yRaster, const std::complex<double>& cFirst, const std::complex<double>& cLast,
-			std::size_t maxIterations, double pointOfNoReturn, PortableBinaryBitmap& pbm)
+	CalculatorThread(std::size_t yBegin, std::size_t yRaster, const std::complex<NumberType>& cFirst, const std::complex<NumberType>& cLast,
+			std::size_t maxIterations, NumberType pointOfNoReturn, PortableBinaryBitmap& pbm)
 	: _yBegin(yBegin)
 	, _yRaster(yRaster)
 	, _cFirst(cFirst)
@@ -216,17 +253,17 @@ public:
 	, _pbm(pbm) {
 	}
 	void operator()() const {
-		double rasterReal = (_cLast.real() - _cFirst.real()) / _pbm.width();
-		double rasterImag = (_cLast.imag() - _cFirst.imag()) / _pbm.height();
-		double squaredPointOfNoReturn = _pointOfNoReturn * _pointOfNoReturn;
+		NumberType rasterReal = (_cLast.real() - _cFirst.real()) / _pbm.width();
+		NumberType rasterImag = (_cLast.imag() - _cFirst.imag()) / _pbm.height();
+		NumberType squaredPointOfNoReturn = _pointOfNoReturn * _pointOfNoReturn;
 		for (std::size_t y=_yBegin; y<_pbm.height(); y+=_yRaster) {
-			double cImagValue = _cFirst.imag() + y*rasterImag;
+			NumberType cImagValue = _cFirst.imag() + y*rasterImag;
 			std::vector<char> mandelbrotLine(_pbm.lineSize());
-			for (std::size_t x=0; x<_pbm.width(); x+=SimdDoubleOctet::size()) {
+			for (std::size_t x=0; x<_pbm.width(); x+=SimdUnion::size()) {
 				VComplex z(0, 0);
 				VComplex c(cImagValue, VComplex::i);
-				for (std::size_t i=0; i<SimdDoubleOctet::size(); i++) {
-					double cRealValue = _cFirst.real() + (x+i)*rasterReal;
+				for (std::size_t i=0; i<SimdUnion::size(); i++) {
+					NumberType cRealValue = _cFirst.real() + (x+i)*rasterReal;
 					c.real(i, cRealValue);
 				}
 				char absLessEqualPointOfNoReturn = 0;
@@ -246,12 +283,20 @@ public:
 private:
 	std::size_t _yBegin;
 	std::size_t _yRaster;
-	std::complex<double> _cFirst;
-	std::complex<double> _cLast;
+	std::complex<NumberType> _cFirst;
+	std::complex<NumberType> _cLast;
 	std::size_t _maxIterations;
-	double _pointOfNoReturn;
+	NumberType _pointOfNoReturn;
 	PortableBinaryBitmap& _pbm;
 };
+
+#if defined(__AVX512BW__)
+typedef Simd512DUnion SystemSimdUnion;
+#elif defined __AVX__
+typedef Simd256DUnion SystemSimdUnion;
+#else
+typedef Simd128DUnion SystemSimdUnion;
+#endif
 
 int main() {
 	const std::size_t N = 16000;
@@ -263,7 +308,7 @@ int main() {
 	std::size_t numberOfThreads = std::thread::hardware_concurrency();
 	std::vector<std::thread> threads;
 	for (std::size_t i=0; i<numberOfThreads; i++) {
-		CalculatorThread<Simd256DoubleOctet> calculatorThread(i, numberOfThreads, cFirst, cLast, maxIterations, pointOfNoReturn, pbm);
+		CalculatorThread<SystemSimdUnion> calculatorThread(i, numberOfThreads, cFirst, cLast, maxIterations, pointOfNoReturn, pbm);
 		threads.push_back(std::thread(calculatorThread));
 	}
 	for (auto& t : threads) {
