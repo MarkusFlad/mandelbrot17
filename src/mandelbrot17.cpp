@@ -267,7 +267,7 @@ int main() {
 	const ComplexNumber cLast (0.5, 1.0);
 	const std::size_t maxIterations = 50;
 	const std::size_t iterationsWithoutCheck = 5;
-	const SystemSimdUnion::NumberType pointOfNoReturn = 4.0;
+	const SystemSimdUnion::NumberType pointOfNoReturn = 2.0;
 	PortableBinaryBitmap pbm ("mandelbrot17.pbm", N, N);
 	std::size_t numberOfThreads = std::thread::hardware_concurrency();
 	auto& canvasVector = pbm.provideParallelCanvas(numberOfThreads);
