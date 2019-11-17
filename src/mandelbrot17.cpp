@@ -117,7 +117,14 @@ public:
 	typedef typename SimdUnion::NumberType NumberType;
 	static struct Imaginary {
 	} i;
-	struct SquareIntermediateResult {
+	class SquareIntermediateResult {
+	public:
+		SquareIntermediateResult() {
+			std::fill(std::begin(_squaredAbs.val), std::end(_squaredAbs.val), 0);
+		}
+		void simdReg(std::size_t i, const typename SimdUnion::SimdRegisterType& reg) {
+			_squaredAbs.reg[i] = reg;
+		}
 		bool squaredAbsLessEqualThen(NumberType threshold) const {
 			static_assert(size<SimdUnion>() == 8, "squaredAbsLessEqualThen() "
 					"is only implemented for SIMD with size of 8.");
@@ -138,6 +145,7 @@ public:
 			if (_squaredAbs.val[7] <= threshold) result |= 0b00000001;
 			return result;
 		}
+	private:
 		SimdUnion _squaredAbs;
 	};
 	VectorizedComplex() = default;
@@ -159,7 +167,7 @@ public:
 			auto realTimesImag = _reals.reg[i] * _imags.reg[i];
 			resultNumbers._reals.reg[i] = realSquared - imagSquared;
 			resultNumbers._imags.reg[i] = realTimesImag + realTimesImag;
-			sir._squaredAbs.reg[i] = realSquared + imagSquared;
+			sir.simdReg(i, realSquared + imagSquared);
 		}
 		return resultNumbers;
 	}
