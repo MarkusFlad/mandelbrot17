@@ -1,9 +1,8 @@
 //============================================================================
-// Name		: mandelbrot17.cpp
-// Author	  : Markus Flad
-// Version	 :
-// Copyright   : 
-// Description : Hello World in C++, Ansi-style
+// Name		   : mandelbrot17.cpp
+// Author	   : Markus Flad
+// Version	   : 1.0.0
+// Description : Calculate mandelbrot in C++17
 //============================================================================
 
 #include <string>
@@ -13,7 +12,9 @@
 #include <algorithm>
 #include <thread>
 #include <sstream>
+#if defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 #include <immintrin.h>
+#endif
 
 constexpr std::size_t BITS_IN_BYTE = 8;
 
@@ -96,6 +97,7 @@ struct NoSimdUnion {
 	NumberType val[8];
 };
 
+#if defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 union Simd128DUnion {
 	typedef double NumberType;
 	typedef __m128d SimdRegisterType;
@@ -116,6 +118,7 @@ union Simd512DUnion {
 	SimdRegisterType reg[1];
 	NumberType val[8];
 };
+#endif // defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 
 template<class SimdUnion>
 static constexpr std::size_t size() {
