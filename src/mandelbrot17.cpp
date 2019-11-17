@@ -220,16 +220,13 @@ public:
 	void operator()() const {
 		NumberType squaredPointOfNoReturn = _pointOfNoReturn * _pointOfNoReturn;
 		std::vector<NumberType> cRealValues;
-		for (std::size_t x=0; x<_canvas.width(); x++) {
-			cRealValues.push_back (_cFirst.real() + x*_rasterReal);
-		}
 		for (std::size_t y=0; y<_canvas.height(); y++) {
 			NumberType cImagValue = _cFirst.imag() + y*_rasterImag;
 			for (std::size_t x=0; x<_canvas.width(); x+=size<SimdUnion>()) {
 				VComplex z(0, 0);
 				VComplex c(cImagValue, VComplex::i);
 				for (std::size_t i=0; i<size<SimdUnion>(); i++) {
-					c.real(i, cRealValues[x+i]);
+					c.real(i, _cFirst.real() + (x+i)*_rasterReal);
 				}
 				typename VComplex::SquareIntermediateResult sir;
 				for (std::size_t i=0; i<_maxOuterIterations; i++) {
