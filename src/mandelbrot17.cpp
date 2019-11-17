@@ -121,14 +121,8 @@ public:
 		bool squaredAbsLessEqualThen(NumberType threshold) const {
 			static_assert(size<SimdUnion>() == 8, "squaredAbsLessEqualThen() "
 					"is only implemented for SIMD with size of 8.");
-			return (_squaredAbs.val[0] <= threshold ||
-					_squaredAbs.val[1] <= threshold ||
-					_squaredAbs.val[2] <= threshold ||
-					_squaredAbs.val[3] <= threshold ||
-					_squaredAbs.val[4] <= threshold ||
-					_squaredAbs.val[5] <= threshold ||
-					_squaredAbs.val[6] <= threshold ||
-					_squaredAbs.val[7] <= threshold);
+			return std::any_of(std::begin(_squaredAbs.val), std::end(_squaredAbs.val),
+					[&threshold](auto v) { return v<=threshold; });
 		}
 		char squaredAbsLessEqualToPixels(NumberType threshold) const {
 			static_assert(size<SimdUnion>() == 8, "squaredAbsLessEqualToPixels() "
