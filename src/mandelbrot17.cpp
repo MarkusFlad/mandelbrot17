@@ -120,9 +120,7 @@ public:
 	} i;
 	class SquareIntermediateResult {
 	public:
-		SquareIntermediateResult() {
-			std::fill(std::begin(_squaredAbs.val), std::end(_squaredAbs.val), 0);
-		}
+		SquareIntermediateResult() = default;
 		void simdReg(std::size_t i, const typename SimdUnion::SimdRegisterType& reg) {
 			_squaredAbs.reg[i] = reg;
 		}
