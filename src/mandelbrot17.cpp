@@ -78,6 +78,24 @@ private:
 	std::vector<Canvas> _canvasVector;
 };
 
+struct NoSimdUnion {
+	typedef double NumberType;
+	typedef double SimdRegisterType;
+	NoSimdUnion()
+	: reg(val) {
+	}
+	NoSimdUnion(const NoSimdUnion& other)
+	: reg(val) {
+		std::copy(std::begin(other.val), std::end(other.val), std::begin(val));
+	}
+	NoSimdUnion& operator=(const NoSimdUnion& other) {
+		std::copy(std::begin(other.val), std::end(other.val), std::begin(val));
+		return *this;
+	}
+	SimdRegisterType* reg;
+	NumberType val[8];
+};
+
 union Simd128DUnion {
 	typedef double NumberType;
 	typedef __m128d SimdRegisterType;
@@ -184,7 +202,9 @@ protected:
 		SimdRegisterType* vValues = simdUnion.reg;
 		constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
 		for (std::size_t i=0; i<size<SimdUnion>(); i+=numbersInReg) {
-			if constexpr (numbersInReg == 2) {
+			if constexpr (numbersInReg == 1) {
+				*vValues = v;
+			} else if constexpr (numbersInReg == 2) {
 				*vValues = SimdRegisterType{v, v};
 			} else if constexpr (numbersInReg == 4) {
 				*vValues = SimdRegisterType{v, v, v, v};
@@ -254,8 +274,10 @@ private:
 typedef Simd512DUnion SystemSimdUnion;
 #elif defined __AVX__
 typedef Simd256DUnion SystemSimdUnion;
-#else
+#elif defined __SSE__
 typedef Simd128DUnion SystemSimdUnion;
+#else
+typedef NoSimdUnion SystemSimdUnion;
 #endif
 
 int main(int argc, char** argv) {
