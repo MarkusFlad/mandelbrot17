@@ -12,6 +12,7 @@
 #include <complex>
 #include <algorithm>
 #include <thread>
+#include <sstream>
 #include <immintrin.h>
 
 constexpr std::size_t BITS_IN_BYTE = 8;
@@ -259,15 +260,19 @@ typedef Simd256DUnion SystemSimdUnion;
 typedef Simd128DUnion SystemSimdUnion;
 #endif
 
-int main() {
-	const std::size_t N = 16000;
+int main(int argc, char** argv) {
+	std::size_t n = 16000;
+	if (argc>=2) {
+		std::stringstream nss (argv[1]);
+		nss >> n;
+	}
 	typedef std::complex<SystemSimdUnion::NumberType> ComplexNumber;
 	const ComplexNumber cFirst (-1.5, -1.0);
 	const ComplexNumber cLast (0.5, 1.0);
 	const std::size_t maxIterations = 50;
 	const std::size_t iterationsWithoutCheck = 5;
 	const SystemSimdUnion::NumberType pointOfNoReturn = 2.0;
-	PortableBinaryBitmap pbm ("mandelbrot17.pbm", N, N);
+	PortableBinaryBitmap pbm ("mandelbrot17.pbm", n, n);
 	std::size_t numberOfThreads = std::thread::hardware_concurrency();
 	auto& canvasVector = pbm.provideParallelCanvas(numberOfThreads);
 	std::vector<std::thread> threads;
