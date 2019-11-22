@@ -18,12 +18,16 @@
 
 constexpr std::size_t BITS_IN_BYTE = 8;
 
+std::size_t roundToMultiple (std::size_t number, std::size_t base) {
+	return number + ((number % base) ? (base - number % base) : 0);
+}
+
 class PortableBinaryBitmap {
 public:
 	PortableBinaryBitmap(const std::string& filename, std::size_t width, std::size_t height)
 	: _file (filename)
-	, _width (width)
-	, _height (height)
+	, _width (roundToMultiple(width, BITS_IN_BYTE))
+	, _height (roundToMultiple(height, std::thread::hardware_concurrency()))
 	, _pixelData ((_width * _height) / BITS_IN_BYTE) {
 		_file << "P4" << '\n';
 		_file << _width << ' ' << _height << '\n';
