@@ -1,38 +1,39 @@
 //============================================================================
-// Name		: mandelbrot17.cpp
-// Author	  : Markus Flad
-// Version	 :
-// Copyright   : 
-// Description : Hello World in C++, Ansi-style
+// Name		   : mandelbrot17.cpp
+// Author	   : Markus Flad
+// Version	   : 1.0.0
+// Description : Calculate mandelbrot in C++17
 //============================================================================
 
 #include <string>
 #include <fstream>
-#include <array>
 #include <vector>
-#include <utility>
-#include <list>
 #include <complex>
 #include <algorithm>
-#include <map>
-#include <mutex>
 #include <thread>
-#include <iostream>
+#include <sstream>
+#if defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 #include <immintrin.h>
+#endif
 
 constexpr std::size_t BITS_IN_BYTE = 8;
+
+std::size_t roundToMultiple (std::size_t number, std::size_t base) {
+	return number + ((number % base) ? (base - number % base) : 0);
+}
 
 class PortableBinaryBitmap {
 public:
 	PortableBinaryBitmap(const std::string& filename, std::size_t width, std::size_t height)
 	: _file (filename)
-	, _width (width)
-	, _height (height)
-	, _lineSize (_width / BITS_IN_BYTE)
-	, _writingFile (false)
-	, _currentY (0) {
+	, _width (roundToMultiple(width, BITS_IN_BYTE))
+	, _height (roundToMultiple(height, std::thread::hardware_concurrency()))
+	, _pixelData ((_width * _height) / BITS_IN_BYTE) {
 		_file << "P4" << '\n';
 		_file << _width << ' ' << _height << '\n';
+	}
+	~PortableBinaryBitmap() {
+		_file.write(_pixelData.data(), _pixelData.size());
 	}
 	std::size_t width() const {
 		return _width;
@@ -40,64 +41,98 @@ public:
 	std::size_t height() const {
 		return _height;
 	}
-	std::size_t lineSize() const {
-		return _lineSize;
-	}
-	void setNextLine(std::size_t y, std::vector<char>&& line) {
-		std::lock_guard lock (_mtx);
-		_lines.emplace_back(HorizontalLine{y, std::move(line)});
-		if (!_writingFile) {
-			writeFile();
-		}
-	}
-protected:
-	struct HorizontalLine {
-		bool operator<(const HorizontalLine& other) {
-			return y < other.y;
-		}
+	struct Line {
 		std::size_t y;
-		std::vector<char> line;
+		std::size_t width;
+		char* data;
 	};
-	void writeFile() {
-		std::vector<std::vector<char>> pendingLines;
-		{
-			std::lock_guard lock (_mtx);
-			_lines.sort();
-			std::size_t nextY = _currentY;
-			while (!_lines.empty()) {
-				const auto& line = _lines.front();
-				if (line.y != nextY) {
-					break;
-				}
-				pendingLines.push_back(std::move(line.line));
-				_lines.pop_front();
-				nextY++;
-			}
-			_currentY = nextY;
-			_writingFile = true;
+	class InterlacedIterator {
+	public:
+		InterlacedIterator(std::size_t y, std::size_t _width, char* data,
+				std::size_t interlaceFactor, std::size_t dataPointerIncrement)
+		: _il {y, _width, data}
+		, _interlaceFactor (interlaceFactor)
+		, _dataPointerIncrement (dataPointerIncrement) {
 		}
-		for (const auto& line : pendingLines) {
-			for (char pixelGroup : line) {
-				_file.write(&pixelGroup, sizeof(char));
-			}
+		Line& operator*() {
+			return _il;
 		}
-		_file.flush();
-		{
-			std::lock_guard lock (_mtx);
-			_writingFile = false;
+		bool operator!=(const InterlacedIterator& other) const {
+			return _il.data != other._il.data;
 		}
+		InterlacedIterator& operator++() {
+			_il.y += _interlaceFactor;
+			_il.data += _dataPointerIncrement;
+			return *this;
+		}
+	private:
+		Line _il;
+		std::size_t _interlaceFactor;
+		std::size_t _dataPointerIncrement;
+	};
+	class InterlacedCanvas {
+	public:
+		InterlacedCanvas(PortableBinaryBitmap& pbm, std::size_t yStart, std::size_t interlacedFactor)
+		: _pbm (pbm)
+		, _yStart (yStart)
+		, _interlacedFactor (interlacedFactor)
+		, _widthInBytes (pbm._width / BITS_IN_BYTE)
+		, _dataPointerIncrement (interlacedFactor * _widthInBytes) {
+		}
+		InterlacedIterator begin() {
+			return InterlacedIterator(_yStart, _pbm._width,
+					_pbm._pixelData.data() + _yStart * _widthInBytes,
+					_interlacedFactor, _dataPointerIncrement);
+		}
+		InterlacedIterator end() {
+			return InterlacedIterator(_yStart + _pbm._height, _pbm._width,
+					_pbm._pixelData.data() + _pbm._pixelData.size() + _yStart * _widthInBytes,
+					_interlacedFactor, _dataPointerIncrement);
+		}
+		std::size_t yStart() const {
+			return _yStart;
+		}
+	private:
+		PortableBinaryBitmap& _pbm;
+		std::size_t _yStart;
+		std::size_t _interlacedFactor;
+		std::size_t _widthInBytes;
+		std::size_t _dataPointerIncrement;
+	};
+	friend class InterlacedCanvas;
+	std::vector<InterlacedCanvas> provideInterlacedCanvas(std::size_t interlacedFactor) {
+		std::vector<InterlacedCanvas> canvasVector;
+		for (std::size_t i=0; i<interlacedFactor; i++) {
+			canvasVector.emplace_back(InterlacedCanvas(*this, i, interlacedFactor));
+		}
+		return canvasVector;
 	}
 private:
-	std::recursive_mutex _mtx;
 	std::ofstream _file;
 	std::size_t _width;
 	std::size_t _height;
-	std::size_t _lineSize;
-	std::list<HorizontalLine> _lines;
-	bool _writingFile;
-	std::size_t _currentY;
+	std::vector<char> _pixelData;
 };
 
+struct NoSimdUnion {
+	typedef double NumberType;
+	typedef double SimdRegisterType;
+	NoSimdUnion()
+	: reg(val) {
+	}
+	NoSimdUnion(const NoSimdUnion& other)
+	: reg(val) {
+		std::copy(std::begin(other.val), std::end(other.val), std::begin(val));
+	}
+	NoSimdUnion& operator=(const NoSimdUnion& other) {
+		std::copy(std::begin(other.val), std::end(other.val), std::begin(val));
+		return *this;
+	}
+	SimdRegisterType* reg;
+	NumberType val[8];
+};
+
+#if defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 union Simd128DUnion {
 	typedef double NumberType;
 	typedef __m128d SimdRegisterType;
@@ -118,6 +153,7 @@ union Simd512DUnion {
 	SimdRegisterType reg[1];
 	NumberType val[8];
 };
+#endif // defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 
 template<class SimdUnion>
 static constexpr std::size_t size() {
@@ -136,14 +172,22 @@ template <class SimdUnion>
 class VectorizedComplex {
 public:
 	typedef typename SimdUnion::NumberType NumberType;
-	static struct imaginary {
+	static struct Imaginary {
 	} i;
-	struct SquareIntermediateResult {
-		NumberType squaredAbs(std::size_t i) const {
-			return _squaredAbs.val[i];
+	class SquareIntermediateResult {
+	public:
+		SquareIntermediateResult() = default;
+		void simdReg(std::size_t i, const typename SimdUnion::SimdRegisterType& reg) {
+			_squaredAbs.reg[i] = reg;
 		}
-		char squaredAbsLessEqualThen(NumberType threshold) {
+		bool squaredAbsLessEqualThen(NumberType threshold) const {
 			static_assert(size<SimdUnion>() == 8, "squaredAbsLessEqualThen() "
+					"is only implemented for SIMD with size of 8.");
+			return std::any_of(std::begin(_squaredAbs.val), std::end(_squaredAbs.val),
+					[&threshold](auto v) { return v<=threshold; });
+		}
+		char squaredAbsLessEqualToPixels(NumberType threshold) const {
+			static_assert(size<SimdUnion>() == 8, "squaredAbsLessEqualToPixels() "
 					"is only implemented for SIMD with size of 8.");
 			char result = 0;
 			if (_squaredAbs.val[0] <= threshold) result |= 0b10000000;
@@ -156,6 +200,7 @@ public:
 			if (_squaredAbs.val[7] <= threshold) result |= 0b00000001;
 			return result;
 		}
+	private:
 		SimdUnion _squaredAbs;
 	};
 	VectorizedComplex() = default;
@@ -163,21 +208,8 @@ public:
 		setVectorValues(_reals, commonRealValue);
 		setVectorValues(_imags, commonImagValue);
 	}
-	VectorizedComplex(NumberType commonImagValue, imaginary i) {
+	VectorizedComplex(NumberType commonImagValue, Imaginary i) {
 		setVectorValues(_imags, commonImagValue);
-	}
-	VectorizedComplex& setValues(NumberType commonRealValue, NumberType commonImagValue) {
-		setVectorValues(_reals, commonRealValue);
-		setVectorValues(_imags, commonImagValue);
-		return *this;
-	}
-	VectorizedComplex& setRealValues(NumberType commonRealValue) {
-		setVectorValues(_reals, commonRealValue);
-		return *this;
-	}
-	VectorizedComplex& setImagValues(NumberType commonImagValue) {
-		setVectorValues(_imags, commonImagValue);
-		return *this;
 	}
 	void real(std::size_t i, NumberType realValue) {
 		_reals.val[i] = realValue;
@@ -190,7 +222,7 @@ public:
 			auto realTimesImag = _reals.reg[i] * _imags.reg[i];
 			resultNumbers._reals.reg[i] = realSquared - imagSquared;
 			resultNumbers._imags.reg[i] = realTimesImag + realTimesImag;
-			sir._squaredAbs.reg[i] = realSquared + imagSquared;
+			sir.simdReg(i, realSquared + imagSquared);
 		}
 		return resultNumbers;
 	}
@@ -208,7 +240,9 @@ protected:
 		SimdRegisterType* vValues = simdUnion.reg;
 		constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
 		for (std::size_t i=0; i<size<SimdUnion>(); i+=numbersInReg) {
-			if constexpr (numbersInReg == 2) {
+			if constexpr (numbersInReg == 1) {
+				*vValues = v;
+			} else if constexpr (numbersInReg == 2) {
 				*vValues = SimdRegisterType{v, v};
 			} else if constexpr (numbersInReg == 4) {
 				*vValues = SimdRegisterType{v, v, v, v};
@@ -229,74 +263,83 @@ public:
 	typedef VectorizedComplex<SimdUnion> VComplex;
 	typedef typename SimdUnion::NumberType NumberType;
 
-	CalculatorThread(std::size_t yBegin, std::size_t yRaster, const std::complex<NumberType>& cFirst, const std::complex<NumberType>& cLast,
-			std::size_t maxIterations, NumberType pointOfNoReturn, PortableBinaryBitmap& pbm)
-	: _yBegin(yBegin)
-	, _yRaster(yRaster)
-	, _cFirst(cFirst)
-	, _cLast(cLast)
-	, _maxIterations(maxIterations)
+	CalculatorThread(const std::complex<NumberType>& cFirst, NumberType rasterReal, NumberType rasterImag,
+			std::size_t maxIterations, std::size_t iterationsWithoutCheck, NumberType pointOfNoReturn,
+			PortableBinaryBitmap::InterlacedCanvas& canvas)
+	: _cFirst(cFirst)
+	, _rasterReal(rasterReal)
+	, _rasterImag(rasterImag)
+	, _maxOuterIterations(maxIterations/iterationsWithoutCheck)
+	, _iterationsWithoutCheck(iterationsWithoutCheck)
 	, _pointOfNoReturn(pointOfNoReturn)
-	, _pbm(pbm) {
+	, _canvas(canvas) {
 	}
-	void operator()() const {
-		NumberType rasterReal = (_cLast.real() - _cFirst.real()) / _pbm.width();
-		NumberType rasterImag = (_cLast.imag() - _cFirst.imag()) / _pbm.height();
+	void operator()() {
 		NumberType squaredPointOfNoReturn = _pointOfNoReturn * _pointOfNoReturn;
-		for (std::size_t y=_yBegin; y<_pbm.height(); y+=_yRaster) {
-			NumberType cImagValue = _cFirst.imag() + y*rasterImag;
-			std::vector<char> mandelbrotLine(_pbm.lineSize());
-			for (std::size_t x=0; x<_pbm.width(); x+=size<SimdUnion>()) {
+		for (PortableBinaryBitmap::Line& line : _canvas) {
+			char* nextPixelGroup = line.data;
+			NumberType cImagValue = _cFirst.imag() + line.y*_rasterImag;
+			for (std::size_t x=0; x<line.width; x+=size<SimdUnion>()) {
 				VComplex z(0, 0);
 				VComplex c(cImagValue, VComplex::i);
 				for (std::size_t i=0; i<size<SimdUnion>(); i++) {
-					NumberType cRealValue = _cFirst.real() + (x+i)*rasterReal;
-					c.real(i, cRealValue);
+					c.real(i, _cFirst.real() + (x+i)*_rasterReal);
 				}
-				char absLessEqualPointOfNoReturn = 0;
 				typename VComplex::SquareIntermediateResult sir;
-				for (std::size_t i=0; i<_maxIterations; i++) {
-					z = z.square(sir) + c;
-					absLessEqualPointOfNoReturn = sir.squaredAbsLessEqualThen(squaredPointOfNoReturn);
-					if (!absLessEqualPointOfNoReturn) {
+				for (std::size_t i=0; i<_maxOuterIterations; i++) {
+					for (std::size_t j=0; j<_iterationsWithoutCheck; j++) {
+						z = z.square(sir) + c;
+					}
+					if (!sir.squaredAbsLessEqualThen(squaredPointOfNoReturn)) {
 						break;
 					}
 				}
-				mandelbrotLine[x/BITS_IN_BYTE] = absLessEqualPointOfNoReturn;
+				*nextPixelGroup = sir.squaredAbsLessEqualToPixels(squaredPointOfNoReturn);
+				nextPixelGroup++;
 			}
-			_pbm.setNextLine(y, std::move(mandelbrotLine));
 		}
 	}
 private:
-	std::size_t _yBegin;
-	std::size_t _yRaster;
 	std::complex<NumberType> _cFirst;
-	std::complex<NumberType> _cLast;
-	std::size_t _maxIterations;
+	NumberType _rasterReal;
+	NumberType _rasterImag;
+	std::size_t _maxOuterIterations;
+	std::size_t _iterationsWithoutCheck;
 	NumberType _pointOfNoReturn;
-	PortableBinaryBitmap& _pbm;
+	PortableBinaryBitmap::InterlacedCanvas _canvas;
 };
 
 #if defined(__AVX512BW__)
 typedef Simd512DUnion SystemSimdUnion;
 #elif defined __AVX__
 typedef Simd256DUnion SystemSimdUnion;
-#else
+#elif defined __SSE__
 typedef Simd128DUnion SystemSimdUnion;
+#else
+typedef NoSimdUnion SystemSimdUnion;
 #endif
 
-int main() {
-	const std::size_t N = 16000;
+int main(int argc, char** argv) {
+	std::size_t n = 16000;
+	if (argc>=2) {
+		std::stringstream nss (argv[1]);
+		nss >> n;
+	}
 	typedef std::complex<SystemSimdUnion::NumberType> ComplexNumber;
 	const ComplexNumber cFirst (-1.5, -1.0);
 	const ComplexNumber cLast (0.5, 1.0);
 	const std::size_t maxIterations = 50;
-	const SystemSimdUnion::NumberType pointOfNoReturn = 4.0;
-	PortableBinaryBitmap pbm ("mandelbrot17.pbm", N, N);
+	const std::size_t iterationsWithoutCheck = 5;
+	const SystemSimdUnion::NumberType pointOfNoReturn = 2.0;
+	PortableBinaryBitmap pbm ("mandelbrot17.pbm", n, n);
 	std::size_t numberOfThreads = std::thread::hardware_concurrency();
+	auto canvasVector = pbm.provideInterlacedCanvas(numberOfThreads);
 	std::vector<std::thread> threads;
-	for (std::size_t i=0; i<numberOfThreads; i++) {
-		CalculatorThread<SystemSimdUnion> calculatorThread(i, numberOfThreads, cFirst, cLast, maxIterations, pointOfNoReturn, pbm);
+	SystemSimdUnion::NumberType rasterReal = (cLast.real() - cFirst.real()) / pbm.width();
+	SystemSimdUnion::NumberType rasterImag = (cLast.imag() - cFirst.imag()) / pbm.height();
+	for (auto& canvas : canvasVector) {
+		CalculatorThread<SystemSimdUnion> calculatorThread(cFirst, rasterReal, rasterImag,
+				maxIterations, iterationsWithoutCheck, pointOfNoReturn, canvas);
 		threads.push_back(std::thread(calculatorThread));
 	}
 	for (auto& t : threads) {
