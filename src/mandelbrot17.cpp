@@ -23,14 +23,13 @@ public:
 	PortableBinaryBitmap(const std::string& filename, std::size_t width, std::size_t height)
 	: _file (filename)
 	, _width (width)
-	, _height (height) {
+	, _height (height)
+	, _pixelData ((_width * _height) / BITS_IN_BYTE) {
 		_file << "P4" << '\n';
 		_file << _width << ' ' << _height << '\n';
 	}
 	~PortableBinaryBitmap() {
-		for (const auto& canvas : _canvasVector) {
-			_file.write(canvas.data().data(), canvas.data().size());
-		}
+		_file.write(_pixelData.data(), _pixelData.size());
 	}
 	std::size_t width() const {
 		return _width;
@@ -38,45 +37,77 @@ public:
 	std::size_t height() const {
 		return _height;
 	}
-	class Canvas {
+	struct Line {
+		std::size_t y;
+		std::size_t width;
+		char* data;
+	};
+	class InterlacedIterator {
 	public:
-		Canvas(std::size_t width, std::size_t height)
-		: _width (width)
-		, _height (height)
-		, _data((width * height) / BITS_IN_BYTE, 0)
-		, _nextPixelGroupIndex(0) {
+		InterlacedIterator(std::size_t y, std::size_t _width, char* data,
+				std::size_t interlaceFactor, std::size_t dataPointerIncrement)
+		: _il {y, _width, data}
+		, _interlaceFactor (interlaceFactor)
+		, _dataPointerIncrement (dataPointerIncrement) {
 		}
-		std::size_t width() const {
-			return _width;
+		Line& operator*() {
+			return _il;
 		}
-		std::size_t height() const {
-			return _height;
+		bool operator!=(const InterlacedIterator& other) const {
+			return _il.data != other._il.data;
 		}
-		const std::vector<char>& data() const {
-			return _data;
-		}
-		void writePixelGroup(char pixelGroup) {
-			_data[_nextPixelGroupIndex] = pixelGroup;
-			_nextPixelGroupIndex++;
+		InterlacedIterator& operator++() {
+			_il.y += _interlaceFactor;
+			_il.data += _dataPointerIncrement;
+			return *this;
 		}
 	private:
-		std::size_t _width;
-		std::size_t _height;
-		std::vector<char> _data;
-		std::size_t _nextPixelGroupIndex;
+		Line _il;
+		std::size_t _interlaceFactor;
+		std::size_t _dataPointerIncrement;
 	};
-	std::vector<Canvas>& provideParallelCanvas(std::size_t number) {
-		std::size_t canvasHeight = _height/number;
-		for (std::size_t i=0; i<number; i++) {
-			_canvasVector.emplace_back(Canvas(_width, canvasHeight));
+	class InterlacedCanvas {
+	public:
+		InterlacedCanvas(PortableBinaryBitmap& pbm, std::size_t yStart, std::size_t interlacedFactor)
+		: _pbm (pbm)
+		, _yStart (yStart)
+		, _interlacedFactor (interlacedFactor)
+		, _widthInBytes (pbm._width / BITS_IN_BYTE)
+		, _dataPointerIncrement (interlacedFactor * _widthInBytes) {
 		}
-		return _canvasVector;
+		InterlacedIterator begin() {
+			return InterlacedIterator(_yStart, _pbm._width,
+					_pbm._pixelData.data() + _yStart * _widthInBytes,
+					_interlacedFactor, _dataPointerIncrement);
+		}
+		InterlacedIterator end() {
+			return InterlacedIterator(_yStart + _pbm._height, _pbm._width,
+					_pbm._pixelData.data() + _pbm._pixelData.size() + _yStart * _widthInBytes,
+					_interlacedFactor, _dataPointerIncrement);
+		}
+		std::size_t yStart() const {
+			return _yStart;
+		}
+	private:
+		PortableBinaryBitmap& _pbm;
+		std::size_t _yStart;
+		std::size_t _interlacedFactor;
+		std::size_t _widthInBytes;
+		std::size_t _dataPointerIncrement;
+	};
+	friend class InterlacedCanvas;
+	std::vector<InterlacedCanvas> provideInterlacedCanvas(std::size_t interlacedFactor) {
+		std::vector<InterlacedCanvas> canvasVector;
+		for (std::size_t i=0; i<interlacedFactor; i++) {
+			canvasVector.emplace_back(InterlacedCanvas(*this, i, interlacedFactor));
+		}
+		return canvasVector;
 	}
 private:
 	std::ofstream _file;
 	std::size_t _width;
 	std::size_t _height;
-	std::vector<Canvas> _canvasVector;
+	std::vector<char> _pixelData;
 };
 
 struct NoSimdUnion {
@@ -229,8 +260,8 @@ public:
 	typedef typename SimdUnion::NumberType NumberType;
 
 	CalculatorThread(const std::complex<NumberType>& cFirst, NumberType rasterReal, NumberType rasterImag,
-			std::size_t maxIterations, std::size_t iterationsWithoutCheck,
-			NumberType pointOfNoReturn, PortableBinaryBitmap::Canvas& canvas)
+			std::size_t maxIterations, std::size_t iterationsWithoutCheck, NumberType pointOfNoReturn,
+			PortableBinaryBitmap::InterlacedCanvas& canvas)
 	: _cFirst(cFirst)
 	, _rasterReal(rasterReal)
 	, _rasterImag(rasterImag)
@@ -239,12 +270,12 @@ public:
 	, _pointOfNoReturn(pointOfNoReturn)
 	, _canvas(canvas) {
 	}
-	void operator()() const {
+	void operator()() {
 		NumberType squaredPointOfNoReturn = _pointOfNoReturn * _pointOfNoReturn;
-		std::vector<NumberType> cRealValues;
-		for (std::size_t y=0; y<_canvas.height(); y++) {
-			NumberType cImagValue = _cFirst.imag() + y*_rasterImag;
-			for (std::size_t x=0; x<_canvas.width(); x+=size<SimdUnion>()) {
+		for (PortableBinaryBitmap::Line& line : _canvas) {
+			char* nextPixelGroup = line.data;
+			NumberType cImagValue = _cFirst.imag() + line.y*_rasterImag;
+			for (std::size_t x=0; x<line.width; x+=size<SimdUnion>()) {
 				VComplex z(0, 0);
 				VComplex c(cImagValue, VComplex::i);
 				for (std::size_t i=0; i<size<SimdUnion>(); i++) {
@@ -259,7 +290,8 @@ public:
 						break;
 					}
 				}
-				_canvas.writePixelGroup(sir.squaredAbsLessEqualToPixels(squaredPointOfNoReturn));
+				*nextPixelGroup = sir.squaredAbsLessEqualToPixels(squaredPointOfNoReturn);
+				nextPixelGroup++;
 			}
 		}
 	}
@@ -270,7 +302,7 @@ private:
 	std::size_t _maxOuterIterations;
 	std::size_t _iterationsWithoutCheck;
 	NumberType _pointOfNoReturn;
-	PortableBinaryBitmap::Canvas& _canvas;
+	PortableBinaryBitmap::InterlacedCanvas _canvas;
 };
 
 #if defined(__AVX512BW__)
@@ -297,17 +329,14 @@ int main(int argc, char** argv) {
 	const SystemSimdUnion::NumberType pointOfNoReturn = 2.0;
 	PortableBinaryBitmap pbm ("mandelbrot17.pbm", n, n);
 	std::size_t numberOfThreads = std::thread::hardware_concurrency();
-	auto& canvasVector = pbm.provideParallelCanvas(numberOfThreads);
+	auto canvasVector = pbm.provideInterlacedCanvas(numberOfThreads);
 	std::vector<std::thread> threads;
 	SystemSimdUnion::NumberType rasterReal = (cLast.real() - cFirst.real()) / pbm.width();
 	SystemSimdUnion::NumberType rasterImag = (cLast.imag() - cFirst.imag()) / pbm.height();
-	SystemSimdUnion::NumberType nextImag = cFirst.imag();
 	for (auto& canvas : canvasVector) {
-		ComplexNumber cNextFirst(cFirst.real(), nextImag);
-		CalculatorThread<SystemSimdUnion> calculatorThread(cNextFirst, rasterReal, rasterImag,
+		CalculatorThread<SystemSimdUnion> calculatorThread(cFirst, rasterReal, rasterImag,
 				maxIterations, iterationsWithoutCheck, pointOfNoReturn, canvas);
 		threads.push_back(std::thread(calculatorThread));
-		nextImag += rasterImag * canvas.height();
 	}
 	for (auto& t : threads) {
 		t.join();
