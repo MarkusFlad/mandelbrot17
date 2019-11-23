@@ -289,14 +289,18 @@ public:
 				_pointOfNoReturn * _pointOfNoReturn;
 		const Size maxOuterIterations =
 				_maxIterations / _iterationsWithoutCheck;
+		std::vector<NumberType> cRealValues(_canvas.width());
 		for (PortableBinaryBitmap::Line& line : _canvas) {
 			char* nextPixels = line.data;
+			for (Size x=0; x<_canvas.width(); x++) {
+				cRealValues[x] = _cFirst.real() + x*rasterReal;
+			}
 			const NumberType cImagValue = _cFirst.imag() + line.y*rasterImag;
 			for (Size x=0; x<line.width; x+=size<SimdUnion>()) {
 				VComplex z(0, 0);
 				VComplex c(cImagValue, VComplex::i);
 				for (Size i=0; i<size<SimdUnion>(); i++) {
-					c.real(i, _cFirst.real() + (x+i)*rasterReal);
+					c.real(i, cRealValues[x+i]);
 				}
 				typename VComplex::SquaredAbs squaredAbs;
 				for (Size i=0; i<maxOuterIterations; i++) {
