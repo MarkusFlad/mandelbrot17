@@ -215,20 +215,16 @@ public:
 	: _reals(reals) {
 		setVectorValues(_imags, commonImagValue);
 	}
-	void real(Size i, NumberType realValue) {
-		_reals.val[i] = realValue;
-	}
-	VectorizedComplex square(SquaredAbs& sir) const {
-		VectorizedComplex resultNumbers;
+	VectorizedComplex& square(SquaredAbs& squaredAbs) {
 		for (Size i=0; i<numberOfRegisters<SimdUnion>(); i++) {
 			auto realSquared = _reals.reg[i] * _reals.reg[i];
 			auto imagSquared = _imags.reg[i] * _imags.reg[i];
 			auto realTimesImag = _reals.reg[i] * _imags.reg[i];
-			resultNumbers._reals.reg[i] = realSquared - imagSquared;
-			resultNumbers._imags.reg[i] = realTimesImag + realTimesImag;
-			sir.simdReg(i, realSquared + imagSquared);
+			_reals.reg[i] = realSquared - imagSquared;
+			_imags.reg[i] = realTimesImag + realTimesImag;
+			squaredAbs.simdReg(i, realSquared + imagSquared);
 		}
-		return resultNumbers;
+		return *this;
 	}
 	friend VectorizedComplex operator+(const VectorizedComplex& lhs,
 			const VectorizedComplex& rhs) {
