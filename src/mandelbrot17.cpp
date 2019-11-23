@@ -10,21 +10,19 @@
 #include <complex>
 #include <algorithm>
 #include <thread>
-#include <sstream>
+#include <climits>
 #if defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 #include <immintrin.h>
 #endif
-
-constexpr std::size_t BITS_IN_BYTE = 8;
 
 class PortableBinaryBitmap {
 public:
 	typedef std::size_t Size;
 	PortableBinaryBitmap(std::ostream& ostr, Size width, Size height)
 	: _ostr (ostr)
-	, _width (roundToMultiple(width, BITS_IN_BYTE))
+	, _width (roundToMultiple(width, CHAR_BIT))
 	, _height (roundToMultiple(height, std::thread::hardware_concurrency()))
-	, _data ((_width * _height) / BITS_IN_BYTE) {
+	, _data ((_width * _height) / CHAR_BIT) {
 		_ostr << "P4" << '\n';
 		_ostr << _width << ' ' << _height << '\n';
 	}
@@ -38,7 +36,7 @@ public:
 		return _height;
 	}
 	Size widthInBytes() const {
-		return _width / BITS_IN_BYTE;
+		return _width / CHAR_BIT;
 	}
 	struct Line {
 		Size y;
@@ -280,15 +278,15 @@ public:
 		for (PortableBinaryBitmap::Line& line : _canvas) {
 			char* nextPixels = line.data;
 			NumberType cImagValue = _cFirst.imag() + line.y*_rasterImag;
-			for (auto x=0; x<line.width; x+=size<SimdUnion>()) {
+			for (Size x=0; x<line.width; x+=size<SimdUnion>()) {
 				VComplex z(0, 0);
 				VComplex c(cImagValue, VComplex::i);
-				for (auto i=0; i<size<SimdUnion>(); i++) {
+				for (Size i=0; i<size<SimdUnion>(); i++) {
 					c.real(i, _cFirst.real() + (x+i)*_rasterReal);
 				}
 				typename VComplex::SquaredAbs squaredAbs;
-				for (auto i=0; i<_maxOuterIterations; i++) {
-					for (auto j=0; j<_iterationsWithoutCheck; j++) {
+				for (Size i=0; i<_maxOuterIterations; i++) {
+					for (Size j=0; j<_iterationsWithoutCheck; j++) {
 						z = z.square(squaredAbs) + c;
 					}
 					if (squaredAbs > squaredPointOfNoReturn) {
