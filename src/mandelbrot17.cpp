@@ -179,8 +179,6 @@ public:
 	typedef typename SimdUnion::NumberType NumberType;
 	typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
 	typedef std::size_t Size;
-	static struct Imaginary {
-	} i;
 	class SquaredAbs {
 	public:
 		void simdReg(Size i, const SimdRegisterType& reg) {
@@ -213,7 +211,8 @@ public:
 		setVectorValues(_reals, commonRealValue);
 		setVectorValues(_imags, commonImagValue);
 	}
-	VectorizedComplex(NumberType commonImagValue, Imaginary i) {
+	VectorizedComplex(const SimdUnion& reals, NumberType commonImagValue)
+	: _reals(reals) {
 		setVectorValues(_imags, commonImagValue);
 	}
 	void real(Size i, NumberType realValue) {
@@ -289,15 +288,21 @@ public:
 				_pointOfNoReturn * _pointOfNoReturn;
 		const Size maxOuterIterations =
 				_maxIterations / _iterationsWithoutCheck;
+		std::vector<SimdUnion> cRealValues;
+		cRealValues.reserve(_canvas.width() / size<SimdUnion>());
+		for (Size x=0; x<_canvas.width(); x+=size<SimdUnion>()) {
+			SimdUnion cReals;
+			for (Size i=0; i<size<SimdUnion>(); i++) {
+				cReals.val[i] = _cFirst.real() + (x+i)*rasterReal;
+			}
+			cRealValues.push_back(cReals);
+		}
 		for (PortableBinaryBitmap::Line& line : _canvas) {
 			char* nextPixels = line.data;
 			const NumberType cImagValue = _cFirst.imag() + line.y*rasterImag;
-			for (Size x=0; x<line.width; x+=size<SimdUnion>()) {
+			for (const SimdUnion& cReals : cRealValues) {
 				VComplex z(0, 0);
-				VComplex c(cImagValue, VComplex::i);
-				for (Size i=0; i<size<SimdUnion>(); i++) {
-					c.real(i, _cFirst.real() + (x+i)*rasterReal);
-				}
+				VComplex c(cReals, cImagValue);
 				typename VComplex::SquaredAbs squaredAbs;
 				for (Size i=0; i<maxOuterIterations; i++) {
 					for (Size j=0; j<_iterationsWithoutCheck; j++) {
