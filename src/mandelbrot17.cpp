@@ -15,13 +15,15 @@
 #include <immintrin.h>
 #endif
 
+const auto numberOfCpuCores = std::thread::hardware_concurrency();
+
 class PortableBinaryBitmap {
 public:
 	typedef std::size_t Size;
 	PortableBinaryBitmap(std::ostream& ostr, Size width, Size height)
 	: _ostr (ostr)
 	, _width (roundToMultiple(width, CHAR_BIT))
-	, _height (roundToMultiple(height, std::thread::hardware_concurrency()))
+	, _height (roundToMultiple(height, numberOfCpuCores))
 	, _data ((_width * _height) / CHAR_BIT) {
 		_ostr << "P4" << '\n';
 		_ostr << _width << ' ' << _height << '\n';
@@ -75,6 +77,12 @@ public:
 		, _increment (increment)
 		, _dataStart (yStart * pbm.widthInBytes())
 		, _dataPointerIncrement (increment * pbm.widthInBytes()) {
+		}
+		Size width() const {
+			return _pbm.width();
+		}
+		Size height() const {
+			return _pbm.height();
 		}
 		Iterator begin() {
 			return Iterator(_yStart, _pbm.width(),
@@ -262,30 +270,36 @@ public:
 	typedef std::size_t Size;
 
 	MandelbrotCalculator(const std::complex<NumberType>& cFirst,
-			NumberType rasterReal, NumberType rasterImag, Size maxIterations,
-			Size iterationsWithoutCheck, NumberType pointOfNoReturn,
-			PortableBinaryBitmap::InterlacedCanvas& canvas)
+			const std::complex<NumberType>& cLast,
+			Size maxIterations, PortableBinaryBitmap::InterlacedCanvas& canvas,
+			NumberType pointOfNoReturn = 2.0, Size iterationsWithoutCheck = 5)
 	: _cFirst(cFirst)
-	, _rasterReal(rasterReal)
-	, _rasterImag(rasterImag)
-	, _maxOuterIterations(maxIterations/iterationsWithoutCheck)
-	, _iterationsWithoutCheck(iterationsWithoutCheck)
+	, _cLast(cLast)
+	, _maxIterations(maxIterations)
+	, _canvas(canvas)
 	, _pointOfNoReturn(pointOfNoReturn)
-	, _canvas(canvas) {
+	, _iterationsWithoutCheck(iterationsWithoutCheck) {
 	}
 	void operator()() {
-		NumberType squaredPointOfNoReturn = _pointOfNoReturn * _pointOfNoReturn;
+		const NumberType realRange = _cLast.real() - _cFirst.real();
+		const NumberType imagRange = _cLast.imag() - _cFirst.imag();
+		const NumberType rasterReal = realRange / _canvas.width();
+		const NumberType rasterImag = imagRange / _canvas.height();
+		const NumberType squaredPointOfNoReturn =
+				_pointOfNoReturn * _pointOfNoReturn;
+		const Size maxOuterIterations =
+				_maxIterations / _iterationsWithoutCheck;
 		for (PortableBinaryBitmap::Line& line : _canvas) {
 			char* nextPixels = line.data;
-			NumberType cImagValue = _cFirst.imag() + line.y*_rasterImag;
+			const NumberType cImagValue = _cFirst.imag() + line.y*rasterImag;
 			for (Size x=0; x<line.width; x+=size<SimdUnion>()) {
 				VComplex z(0, 0);
 				VComplex c(cImagValue, VComplex::i);
 				for (Size i=0; i<size<SimdUnion>(); i++) {
-					c.real(i, _cFirst.real() + (x+i)*_rasterReal);
+					c.real(i, _cFirst.real() + (x+i)*rasterReal);
 				}
 				typename VComplex::SquaredAbs squaredAbs;
-				for (Size i=0; i<_maxOuterIterations; i++) {
+				for (Size i=0; i<maxOuterIterations; i++) {
 					for (Size j=0; j<_iterationsWithoutCheck; j++) {
 						z = z.square(squaredAbs) + c;
 					}
@@ -300,12 +314,11 @@ public:
 	}
 private:
 	std::complex<NumberType> _cFirst;
-	NumberType _rasterReal;
-	NumberType _rasterImag;
-	Size _maxOuterIterations;
-	Size _iterationsWithoutCheck;
-	NumberType _pointOfNoReturn;
+	std::complex<NumberType> _cLast;
+	Size _maxIterations;
 	PortableBinaryBitmap::InterlacedCanvas _canvas;
+	NumberType _pointOfNoReturn;
+	Size _iterationsWithoutCheck;
 };
 
 #if defined(__AVX512BW__)
@@ -326,21 +339,14 @@ int main(int argc, char** argv) {
 		std::stringstream nss (argv[1]);
 		nss >> n;
 	}
-	const ComplexNumber cFirst (-1.5, -1.0);
-	const ComplexNumber cLast (0.5, 1.0);
 	const std::size_t maxIterations = 50;
-	const std::size_t iterationsWithoutCheck = 5;
-	const SystemSimdUnion::NumberType pointOfNoReturn = 2.0;
-	PortableBinaryBitmap pbm (std::cout, n, n);
-	const NumberType rasterReal = (cLast.real() - cFirst.real()) / pbm.width();
-	const NumberType rasterImag = (cLast.imag() - cFirst.imag()) / pbm.height();
-	std::size_t numberOfThreads = std::thread::hardware_concurrency();
-	auto canvasVector = pbm.provideInterlacedCanvas(numberOfThreads);
+	PortableBinaryBitmap pbm(std::cout, n, n);
+	auto canvasVector = pbm.provideInterlacedCanvas(numberOfCpuCores);
 	std::vector<std::thread> threads;
 	for (auto& canvas : canvasVector) {
 		threads.push_back(std::thread(MandelbrotCalculator<SystemSimdUnion> (
-				cFirst, rasterReal, rasterImag, maxIterations,
-				iterationsWithoutCheck, pointOfNoReturn, canvas)));
+				ComplexNumber(-1.5, -1.0), ComplexNumber(0.5, 1.0),
+				maxIterations, canvas)));
 	}
 	for (auto& t : threads) {
 		t.join();
