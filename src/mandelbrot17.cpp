@@ -48,9 +48,9 @@ public:
 		class Iterator {
 		public:
 			Iterator(Size y, Size _width, char* data,
-					Size interlaceFactor, Size dataPointerIncrement)
+					Size interlaceIncrement, Size dataPointerIncrement)
 			: _il {y, _width, data}
-			, _interlaceFactor (interlaceFactor)
+			, _interlaceIncrement (interlaceIncrement)
 			, _dataPointerIncrement (dataPointerIncrement) {
 			}
 			Line& operator*() {
@@ -60,13 +60,13 @@ public:
 				return _il.data != other._il.data;
 			}
 			Iterator& operator++() {
-				_il.y += _interlaceFactor;
+				_il.y += _interlaceIncrement;
 				_il.data += _dataPointerIncrement;
 				return *this;
 			}
 		private:
 			Line _il;
-			Size _interlaceFactor;
+			Size _interlaceIncrement;
 			Size _dataPointerIncrement;
 		};
 		InterlacedCanvas(PortableBinaryBitmap& pbm, Size yStart, Size increment)
