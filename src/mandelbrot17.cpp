@@ -173,8 +173,27 @@ static constexpr std::size_t numberOfRegisters() {
 	return size<SimdUnion>() / numberOfNumbersInRegister<SimdUnion>();
 }
 
+template<class SimdUnion>
+void setValue(SimdUnion& simdUnion, typename SimdUnion::NumberType v) {
+	typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
+	SimdRegisterType* vValues = simdUnion.reg;
+	constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
+	for (std::size_t i=0; i<size<SimdUnion>(); i+=numbersInReg) {
+		if constexpr (numbersInReg == 1) {
+			*vValues = v;
+		} else if constexpr (numbersInReg == 2) {
+			*vValues = SimdRegisterType{v, v};
+		} else if constexpr (numbersInReg == 4) {
+			*vValues = SimdRegisterType{v, v, v, v};
+		} else if constexpr (numbersInReg == 8) {
+			*vValues = SimdRegisterType{v, v, v, v, v, v, v, v};
+		}
+		vValues++;
+	}
+}
+
 template <class SimdUnion>
-class VectorizedComplex {
+class VectorizedComplexBase {
 public:
 	typedef typename SimdUnion::NumberType NumberType;
 	typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
@@ -206,14 +225,43 @@ public:
 	private:
 		SimdUnion _squaredAbs;
 	};
-	VectorizedComplex() = default;
-	VectorizedComplex(NumberType commonRealValue, NumberType commonImagValue) {
-		setVectorValues(_reals, commonRealValue);
-		setVectorValues(_imags, commonImagValue);
+};
+
+template <class SimdUnion>
+class VectorizedComplexCommonImag : public VectorizedComplexBase<SimdUnion> {
+public:
+	typedef VectorizedComplexBase<SimdUnion> BT;
+	using typename BT::NumberType;
+	using typename BT::SquaredAbs;
+	using typename BT::Size;
+	VectorizedComplexCommonImag(const SimdUnion& reals,
+			SimdUnion& commonImags)
+	: _reals(reals)
+	, _commonImags(commonImags) {
 	}
-	VectorizedComplex(const SimdUnion& reals, NumberType commonImagValue)
-	: _reals(reals) {
-		setVectorValues(_imags, commonImagValue);
+	const SimdUnion& reals() const {
+		return _reals;
+	}
+	const SimdUnion& imags() const {
+		return _commonImags;
+	}
+private:
+	SimdUnion _reals;
+	SimdUnion& _commonImags;
+};
+
+template <class SimdUnion>
+class VectorizedComplex : public VectorizedComplexBase<SimdUnion> {
+public:
+	typedef VectorizedComplexBase<SimdUnion> BT;
+	using typename BT::NumberType;
+	using typename BT::SquaredAbs;
+	using typename BT::Size;
+	VectorizedComplex() = default;
+	VectorizedComplex(NumberType commonRealValue,
+			NumberType commonImagValue) {
+		setValue(_reals, commonRealValue);
+		setValue(_imags, commonImagValue);
 	}
 	VectorizedComplex& square(SquaredAbs& squaredAbs) {
 		for (Size i=0; i<numberOfRegisters<SimdUnion>(); i++) {
@@ -227,30 +275,13 @@ public:
 		return *this;
 	}
 	friend VectorizedComplex operator+(const VectorizedComplex& lhs,
-			const VectorizedComplex& rhs) {
+			const VectorizedComplexCommonImag<SimdUnion>& rhs) {
 		VectorizedComplex resultNumbers;
 		for (Size i=0; i<numberOfRegisters<SimdUnion>(); i++) {
-			resultNumbers._reals.reg[i] = lhs._reals.reg[i] + rhs._reals.reg[i];
-			resultNumbers._imags.reg[i] = lhs._imags.reg[i] + rhs._imags.reg[i];
+			resultNumbers._reals.reg[i] = lhs._reals.reg[i] + rhs.reals().reg[i];
+			resultNumbers._imags.reg[i] = lhs._imags.reg[i] + rhs.imags().reg[i];
 		}
 		return resultNumbers;
-	}
-protected:
-	static void setVectorValues(SimdUnion& simdUnion, NumberType v) {
-		SimdRegisterType* vValues = simdUnion.reg;
-		constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
-		for (Size i=0; i<size<SimdUnion>(); i+=numbersInReg) {
-			if constexpr (numbersInReg == 1) {
-				*vValues = v;
-			} else if constexpr (numbersInReg == 2) {
-				*vValues = SimdRegisterType{v, v};
-			} else if constexpr (numbersInReg == 4) {
-				*vValues = SimdRegisterType{v, v, v, v};
-			} else if constexpr (numbersInReg == 8) {
-				*vValues = SimdRegisterType{v, v, v, v, v, v, v, v};
-			}
-			vValues++;
-		}
 	}
 private:
 	SimdUnion _reals;
@@ -261,6 +292,7 @@ template <class SimdUnion>
 class MandelbrotCalculator {
 public:
 	typedef VectorizedComplex<SimdUnion> VComplex;
+	typedef VectorizedComplexCommonImag<SimdUnion> VComplexCI;
 	typedef typename SimdUnion::NumberType NumberType;
 	typedef std::size_t Size;
 
@@ -295,10 +327,11 @@ public:
 		}
 		for (PortableBinaryBitmap::Line& line : _canvas) {
 			char* nextPixels = line.data;
-			const NumberType cImagValue = _cFirst.imag() + line.y*rasterImag;
+			SimdUnion cImags;
+			setValue(cImags, _cFirst.imag() + line.y*rasterImag);
 			for (const SimdUnion& cReals : cRealValues) {
 				VComplex z(0, 0);
-				VComplex c(cReals, cImagValue);
+				VComplexCI c(cReals, cImags);
 				typename VComplex::SquaredAbs squaredAbs;
 				for (Size i=0; i<maxOuterIterations; i++) {
 					for (Size j=0; j<_iterationsWithoutCheck; j++) {
