@@ -19,6 +19,8 @@
 
 const auto numberOfCpuCores = std::thread::hardware_concurrency();
 
+// The PortableBinaryBitmap manages access to the pbm output file and provides
+// interlaced canvases that allow threads to write to the bitmap in parallel.
 class PortableBinaryBitmap {
 public:
 	typedef std::size_t Size;
@@ -50,6 +52,8 @@ public:
 		Size width;
 		char* data;
 	};
+	// The InterlacedCanvas provides interlaced access to the bitmap data. Each
+	// thread must use its own InterlacedCanvas to write to the bitmap.
 	class InterlacedCanvas {
 	public:
 		class Iterator {
@@ -123,6 +127,7 @@ private:
 	std::vector<char> _data;
 };
 
+// If the system does not support SIMD, NoSimdUnion can be used.
 struct NoSimdUnion {
 	typedef double NumberType;
 	typedef double SimdRegisterType;
@@ -197,12 +202,18 @@ void setValue(SimdUnion& simdUnion, typename SimdUnion::NumberType v) {
 	}
 }
 
+// VectorizedComplex provides a convenient interface to deal with complex
+// numbers and uses the power of SIMD for high execution speed.
 template <class SimdUnion>
 class VectorizedComplex {
 public:
 	typedef typename SimdUnion::NumberType NumberType;
 	typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
 	typedef std::size_t Size;
+
+	// SquaredAbs is passed to special VectorizedComplex methods that calculate
+	// the squared absolute value of the complex number as an intermediate.
+	// This means that the calculation does not have to be done twice.
 	class SquaredAbs {
 	public:
 		void simdReg(Size i, const SimdRegisterType& reg) {
@@ -261,6 +272,11 @@ private:
 	SimdUnion _imags;
 };
 
+// The ComplexPlaneCalculator performs function f(c), with c as a
+// VectorizedComplex and a byte as the return value. Due to its eightfold
+// vectorization, each returned bit can return a Boolean value from the
+// calculation f(c). The full byte is then written to the canvas. This is done
+// until the whole bitmap is filled.
 template <class SimdUnion, class Functor>
 class ComplexPlaneCalculator {
 public:
@@ -309,6 +325,11 @@ private:
 	Functor _f;
 };
 
+// Functor calculating a Mandelbrot iteration for a VectorizedComplex. This
+// means that for eight complex numbers the Mandelbrot calculation is
+// (potentially) executed in parallel. The result is a byte that contains a 1
+// for each bit if the corresponding complex number is in the Mandelbrot set,
+// and a 0 if it is not.
 template <class SimdUnion>
 class MandelbrotFunction {
 public:
