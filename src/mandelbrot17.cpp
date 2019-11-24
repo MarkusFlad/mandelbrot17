@@ -255,33 +255,26 @@ private:
 	SimdUnion _imags;
 };
 
-template <class SimdUnion>
-class MandelbrotCalculator {
+template <class SimdUnion, class FunctionType>
+class ComplexPlaneCalculator {
 public:
 	typedef VectorizedComplex<SimdUnion> VComplex;
 	typedef typename SimdUnion::NumberType NumberType;
 	typedef std::size_t Size;
 
-	MandelbrotCalculator(const std::complex<NumberType>& cFirst,
+	ComplexPlaneCalculator(const std::complex<NumberType>& cFirst,
 			const std::complex<NumberType>& cLast,
-			Size maxIterations, PortableBinaryBitmap::InterlacedCanvas& canvas,
-			NumberType pointOfNoReturn = 2.0, Size iterationsWithoutCheck = 5)
+			PortableBinaryBitmap::InterlacedCanvas& canvas, FunctionType f)
 	: _cFirst(cFirst)
 	, _cLast(cLast)
-	, _maxIterations(maxIterations)
 	, _canvas(canvas)
-	, _pointOfNoReturn(pointOfNoReturn)
-	, _iterationsWithoutCheck(iterationsWithoutCheck) {
+	, _f(f) {
 	}
 	void operator()() {
 		const NumberType realRange = _cLast.real() - _cFirst.real();
 		const NumberType imagRange = _cLast.imag() - _cFirst.imag();
 		const NumberType rasterReal = realRange / _canvas.width();
 		const NumberType rasterImag = imagRange / _canvas.height();
-		const NumberType squaredPointOfNoReturn =
-				_pointOfNoReturn * _pointOfNoReturn;
-		const Size maxOuterIterations =
-				_maxIterations / _iterationsWithoutCheck;
 		std::vector<SimdUnion> cRealValues;
 		cRealValues.reserve(_canvas.width() / size<SimdUnion>());
 		for (Size x=0; x<_canvas.width(); x+=size<SimdUnion>()) {
@@ -296,17 +289,7 @@ public:
 			const NumberType cImagValue = _cFirst.imag() + line.y*rasterImag;
 			for (const SimdUnion& cReals : cRealValues) {
 				VComplex c(cReals, cImagValue);
-				VComplex z = c;
-				typename VComplex::SquaredAbs squaredAbs;
-				for (Size i=0; i<maxOuterIterations; i++) {
-					for (Size j=0; j<_iterationsWithoutCheck; j++) {
-						z = z.square(squaredAbs) + c;
-					}
-					if (squaredAbs > squaredPointOfNoReturn) {
-						break;
-					}
-				}
-				*nextPixels = squaredAbs.lteToPixels(squaredPointOfNoReturn);
+				*nextPixels = _f(c);
 				nextPixels++;
 			}
 		}
@@ -314,9 +297,39 @@ public:
 private:
 	std::complex<NumberType> _cFirst;
 	std::complex<NumberType> _cLast;
-	Size _maxIterations;
 	PortableBinaryBitmap::InterlacedCanvas _canvas;
-	NumberType _pointOfNoReturn;
+	FunctionType _f;
+};
+
+template <class SimdUnion>
+class MandelbrotFunction {
+public:
+	typedef VectorizedComplex<SimdUnion> VComplex;
+	typedef typename SimdUnion::NumberType NumberType;
+	typedef std::size_t Size;
+
+	MandelbrotFunction(Size maxIterations, NumberType pointOfNoReturn = 2.0,
+			Size iterationsWithoutCheck = 5)
+	: _maxOuterIterations(maxIterations / iterationsWithoutCheck)
+	, _squaredPointOfNoReturn(pointOfNoReturn * pointOfNoReturn)
+	, _iterationsWithoutCheck(iterationsWithoutCheck) {
+	}
+	char operator()(const VComplex& c) const {
+		VComplex z = c;
+		typename VComplex::SquaredAbs squaredAbs;
+		for (Size i=0; i<_maxOuterIterations; i++) {
+			for (Size j=0; j<_iterationsWithoutCheck; j++) {
+				z = z.square(squaredAbs) + c;
+			}
+			if (squaredAbs > _squaredPointOfNoReturn) {
+				break;
+			}
+		}
+		return squaredAbs.lteToPixels(_squaredPointOfNoReturn);
+	}
+private:
+	Size _maxOuterIterations;
+	NumberType _squaredPointOfNoReturn;
 	Size _iterationsWithoutCheck;
 };
 
@@ -333,6 +346,8 @@ typedef NoSimdUnion SystemSimdUnion;
 int main(int argc, char** argv) {
 	typedef SystemSimdUnion::NumberType NumberType;
 	typedef std::complex<NumberType> ComplexNumber;
+	typedef ComplexPlaneCalculator<SystemSimdUnion,
+			MandelbrotFunction<SystemSimdUnion>> MandelbrotCalculator;
 	std::size_t n = 16000;
 	if (argc>=2) {
 		std::stringstream nss (argv[1]);
@@ -343,9 +358,9 @@ int main(int argc, char** argv) {
 	auto canvasVector = pbm.provideInterlacedCanvas(numberOfCpuCores);
 	std::vector<std::thread> threads;
 	for (auto& canvas : canvasVector) {
-		threads.emplace_back(MandelbrotCalculator<SystemSimdUnion> (
-				ComplexNumber(-1.5, -1.0), ComplexNumber(0.5, 1.0),
-				maxIterations, canvas));
+		threads.emplace_back(MandelbrotCalculator (ComplexNumber(-1.5, -1.0),
+				ComplexNumber(0.5, 1.0), canvas,
+				MandelbrotFunction<SystemSimdUnion> (maxIterations)));
 	}
 	for (auto& t : threads) {
 		t.join();
