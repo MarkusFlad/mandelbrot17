@@ -1,8 +1,10 @@
-//============================================================================
-// Name		   : mandelbrot17.cpp
-// Author	   : Markus Flad
-// Description : Calculate mandelbrot in C++17
-//============================================================================
+﻿// The Computer Language Benchmarks Game
+// https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
+//
+// Contributed by Markus Flad
+//
+// compile with following g++ flags
+//  -std=c++17 -O3 -Wall -fomit-frame-pointer -march=native -mfpmath=sse -msse2 -mno-fma
 
 #include <string>
 #include <iostream>
