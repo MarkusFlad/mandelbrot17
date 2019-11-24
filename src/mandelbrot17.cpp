@@ -41,6 +41,9 @@ public:
 		return _width / CHAR_BIT;
 	}
 	struct Line {
+		constexpr static Size pixelsPerWrite() {
+			return sizeof(data);
+		}
 		Size y;
 		Size width;
 		char* data;
@@ -160,8 +163,8 @@ union Simd512DUnion {
 #endif // defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 
 template<class SimdUnion>
-constexpr std::size_t size() {
-	return sizeof(sizeof(SimdUnion::val));
+constexpr std::size_t numberOfNumbers() {
+	return sizeof(SimdUnion::val) / sizeof(typename SimdUnion::NumberType);
 }
 template<class SimdUnion>
 constexpr std::size_t numberOfNumbersInRegister() {
@@ -170,14 +173,15 @@ constexpr std::size_t numberOfNumbersInRegister() {
 }
 template<class SimdUnion>
 constexpr std::size_t numberOfRegisters() {
-	return size<SimdUnion>() / numberOfNumbersInRegister<SimdUnion>();
+	return numberOfNumbers<SimdUnion>() /
+			numberOfNumbersInRegister<SimdUnion>();
 }
 template<class SimdUnion>
 void setValue(SimdUnion& simdUnion, typename SimdUnion::NumberType v) {
 	typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
 	SimdRegisterType* vValues = simdUnion.reg;
 	constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
-	for (std::size_t i=0; i<size<SimdUnion>(); i+=numbersInReg) {
+	for (std::size_t i=0; i<numberOfNumbers<SimdUnion>(); i+=numbersInReg) {
 		if constexpr (numbersInReg == 1) {
 			*vValues = v;
 		} else if constexpr (numbersInReg == 2) {
@@ -208,7 +212,7 @@ public:
 					[&threshold](auto v) { return v>threshold; });
 		}
 		char lteToPixels(NumberType threshold) const {
-			static_assert(size<SimdUnion>() == 8, "lteToPixels() "
+			static_assert(numberOfNumbers<SimdUnion>() == 8, "lteToPixels() "
 					"is only implemented for SIMD with size of 8.");
 			char result = 0;
 			if (_squaredAbs.val[0] <= threshold) result |= 0b10000000;
@@ -255,20 +259,22 @@ private:
 	SimdUnion _imags;
 };
 
-template <class SimdUnion, class FunctionType>
+template <class SimdUnion, class Functor>
 class ComplexPlaneCalculator {
 public:
 	typedef VectorizedComplex<SimdUnion> VComplex;
 	typedef typename SimdUnion::NumberType NumberType;
+	typedef typename PortableBinaryBitmap::Line Line;
 	typedef std::size_t Size;
 
 	ComplexPlaneCalculator(const std::complex<NumberType>& cFirst,
 			const std::complex<NumberType>& cLast,
-			PortableBinaryBitmap::InterlacedCanvas& canvas, FunctionType f)
+			PortableBinaryBitmap::InterlacedCanvas& canvas, Functor f)
 	: _cFirst(cFirst)
 	, _cLast(cLast)
 	, _canvas(canvas)
 	, _f(f) {
+		static_assert(numberOfNumbers<SimdUnion>() == Line::pixelsPerWrite());
 	}
 	void operator()() {
 		const NumberType realRange = _cLast.real() - _cFirst.real();
@@ -276,15 +282,15 @@ public:
 		const NumberType rasterReal = realRange / _canvas.width();
 		const NumberType rasterImag = imagRange / _canvas.height();
 		std::vector<SimdUnion> cRealValues;
-		cRealValues.reserve(_canvas.width() / size<SimdUnion>());
-		for (Size x=0; x<_canvas.width(); x+=size<SimdUnion>()) {
+		cRealValues.reserve(_canvas.width() / Line::pixelsPerWrite());
+		for (Size x=0; x<_canvas.width(); x+=Line::pixelsPerWrite()) {
 			SimdUnion cReals;
-			for (Size i=0; i<size<SimdUnion>(); i++) {
+			for (Size i=0; i<Line::pixelsPerWrite(); i++) {
 				cReals.val[i] = _cFirst.real() + (x+i)*rasterReal;
 			}
 			cRealValues.push_back(cReals);
 		}
-		for (PortableBinaryBitmap::Line& line : _canvas) {
+		for (Line& line : _canvas) {
 			char* nextPixels = line.data;
 			const NumberType cImagValue = _cFirst.imag() + line.y*rasterImag;
 			for (const SimdUnion& cReals : cRealValues) {
@@ -298,7 +304,7 @@ private:
 	std::complex<NumberType> _cFirst;
 	std::complex<NumberType> _cLast;
 	PortableBinaryBitmap::InterlacedCanvas _canvas;
-	FunctionType _f;
+	Functor _f;
 };
 
 template <class SimdUnion>
