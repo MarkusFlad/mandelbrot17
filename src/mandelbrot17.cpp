@@ -160,17 +160,35 @@ union Simd512DUnion {
 #endif // defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 
 template<class SimdUnion>
-static constexpr std::size_t size() {
+constexpr std::size_t size() {
 	return sizeof(sizeof(SimdUnion::val));
 }
 template<class SimdUnion>
-static constexpr std::size_t numberOfNumbersInRegister() {
+constexpr std::size_t numberOfNumbersInRegister() {
 	return sizeof(typename SimdUnion::SimdRegisterType) /
 			sizeof(typename SimdUnion::NumberType);
 }
 template<class SimdUnion>
-static constexpr std::size_t numberOfRegisters() {
+constexpr std::size_t numberOfRegisters() {
 	return size<SimdUnion>() / numberOfNumbersInRegister<SimdUnion>();
+}
+template<class SimdUnion>
+void setValue(SimdUnion& simdUnion, typename SimdUnion::NumberType v) {
+	typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
+	SimdRegisterType* vValues = simdUnion.reg;
+	constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
+	for (std::size_t i=0; i<size<SimdUnion>(); i+=numbersInReg) {
+		if constexpr (numbersInReg == 1) {
+			*vValues = v;
+		} else if constexpr (numbersInReg == 2) {
+			*vValues = SimdRegisterType{v, v};
+		} else if constexpr (numbersInReg == 4) {
+			*vValues = SimdRegisterType{v, v, v, v};
+		} else if constexpr (numbersInReg == 8) {
+			*vValues = SimdRegisterType{v, v, v, v, v, v, v, v};
+		}
+		vValues++;
+	}
 }
 
 template <class SimdUnion>
@@ -208,12 +226,12 @@ public:
 	};
 	VectorizedComplex() = default;
 	VectorizedComplex(NumberType commonRealValue, NumberType commonImagValue) {
-		setVectorValues(_reals, commonRealValue);
-		setVectorValues(_imags, commonImagValue);
+		setValue(_reals, commonRealValue);
+		setValue(_imags, commonImagValue);
 	}
 	VectorizedComplex(const SimdUnion& reals, NumberType commonImagValue)
 	: _reals(reals) {
-		setVectorValues(_imags, commonImagValue);
+		setValue(_imags, commonImagValue);
 	}
 	VectorizedComplex& square(SquaredAbs& squaredAbs) {
 		for (Size i=0; i<numberOfRegisters<SimdUnion>(); i++) {
@@ -234,23 +252,6 @@ public:
 			resultNumbers._imags.reg[i] = lhs._imags.reg[i] + rhs._imags.reg[i];
 		}
 		return resultNumbers;
-	}
-protected:
-	static void setVectorValues(SimdUnion& simdUnion, NumberType v) {
-		SimdRegisterType* vValues = simdUnion.reg;
-		constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
-		for (Size i=0; i<size<SimdUnion>(); i+=numbersInReg) {
-			if constexpr (numbersInReg == 1) {
-				*vValues = v;
-			} else if constexpr (numbersInReg == 2) {
-				*vValues = SimdRegisterType{v, v};
-			} else if constexpr (numbersInReg == 4) {
-				*vValues = SimdRegisterType{v, v, v, v};
-			} else if constexpr (numbersInReg == 8) {
-				*vValues = SimdRegisterType{v, v, v, v, v, v, v, v};
-			}
-			vValues++;
-		}
 	}
 private:
 	SimdUnion _reals;
