@@ -102,11 +102,11 @@ public:
 		Size _dataPointerIncrement;
 	};
 	std::vector<InterlacedCanvas> provideInterlacedCanvas(Size increment) {
-		std::vector<InterlacedCanvas> result;
+		std::vector<InterlacedCanvas> interlacedCanvasVector;
 		for (Size yStart=0; yStart<increment; yStart++) {
-			result.emplace_back(InterlacedCanvas(*this, yStart, increment));
+			interlacedCanvasVector.emplace_back(*this, yStart, increment);
 		}
-		return result;
+		return interlacedCanvasVector;
 	}
 	static Size roundToMultiple (Size number, Size base) {
 		return number + ((number % base) ? (base - number % base) : 0);
@@ -225,10 +225,7 @@ public:
 		SimdUnion _squaredAbs;
 	};
 	VectorizedComplex() = default;
-	VectorizedComplex(NumberType commonRealValue, NumberType commonImagValue) {
-		setValue(_reals, commonRealValue);
-		setValue(_imags, commonImagValue);
-	}
+	VectorizedComplex(const VectorizedComplex&) = default;
 	VectorizedComplex(const SimdUnion& reals, NumberType commonImagValue)
 	: _reals(reals) {
 		setValue(_imags, commonImagValue);
@@ -298,8 +295,8 @@ public:
 			char* nextPixels = line.data;
 			const NumberType cImagValue = _cFirst.imag() + line.y*rasterImag;
 			for (const SimdUnion& cReals : cRealValues) {
-				VComplex z(0, 0);
 				VComplex c(cReals, cImagValue);
+				VComplex z = c;
 				typename VComplex::SquaredAbs squaredAbs;
 				for (Size i=0; i<maxOuterIterations; i++) {
 					for (Size j=0; j<_iterationsWithoutCheck; j++) {
@@ -346,9 +343,9 @@ int main(int argc, char** argv) {
 	auto canvasVector = pbm.provideInterlacedCanvas(numberOfCpuCores);
 	std::vector<std::thread> threads;
 	for (auto& canvas : canvasVector) {
-		threads.push_back(std::thread(MandelbrotCalculator<SystemSimdUnion> (
+		threads.emplace_back(MandelbrotCalculator<SystemSimdUnion> (
 				ComplexNumber(-1.5, -1.0), ComplexNumber(0.5, 1.0),
-				maxIterations, canvas)));
+				maxIterations, canvas));
 	}
 	for (auto& t : threads) {
 		t.join();
