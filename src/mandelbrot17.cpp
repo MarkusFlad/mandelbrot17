@@ -160,16 +160,16 @@ union Simd512DUnion {
 #endif // defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 
 template<class SimdUnion>
-static constexpr std::size_t size() {
+constexpr std::size_t size() {
 	return sizeof(sizeof(SimdUnion::val));
 }
 template<class SimdUnion>
-static constexpr std::size_t numberOfNumbersInRegister() {
+constexpr std::size_t numberOfNumbersInRegister() {
 	return sizeof(typename SimdUnion::SimdRegisterType) /
 			sizeof(typename SimdUnion::NumberType);
 }
 template<class SimdUnion>
-static constexpr std::size_t numberOfRegisters() {
+constexpr std::size_t numberOfRegisters() {
 	return size<SimdUnion>() / numberOfNumbersInRegister<SimdUnion>();
 }
 
@@ -232,22 +232,23 @@ class VectorizedComplexCommonImag : public VectorizedComplexBase<SimdUnion> {
 public:
 	typedef VectorizedComplexBase<SimdUnion> BT;
 	using typename BT::NumberType;
+	using typename BT::SimdRegisterType;
 	using typename BT::SquaredAbs;
 	using typename BT::Size;
 	VectorizedComplexCommonImag(const SimdUnion& reals,
-			SimdUnion& commonImags)
+			SimdRegisterType& commonImagReg)
 	: _reals(reals)
-	, _commonImags(commonImags) {
+	, _commonImagReg(commonImagReg) {
 	}
 	const SimdUnion& reals() const {
 		return _reals;
 	}
-	const SimdUnion& imags() const {
-		return _commonImags;
+	const SimdRegisterType& imagReg() const {
+		return _commonImagReg;
 	}
 private:
 	SimdUnion _reals;
-	SimdUnion& _commonImags;
+	SimdRegisterType& _commonImagReg;
 };
 
 template <class SimdUnion>
@@ -279,7 +280,7 @@ public:
 		VectorizedComplex resultNumbers;
 		for (Size i=0; i<numberOfRegisters<SimdUnion>(); i++) {
 			resultNumbers._reals.reg[i] = lhs._reals.reg[i] + rhs.reals().reg[i];
-			resultNumbers._imags.reg[i] = lhs._imags.reg[i] + rhs.imags().reg[i];
+			resultNumbers._imags.reg[i] = lhs._imags.reg[i] + rhs.imagReg();
 		}
 		return resultNumbers;
 	}
@@ -331,7 +332,7 @@ public:
 			setValue(cImags, _cFirst.imag() + line.y*rasterImag);
 			for (const SimdUnion& cReals : cRealValues) {
 				VComplex z(0, 0);
-				VComplexCI c(cReals, cImags);
+				VComplexCI c(cReals, cImags.reg[0]);
 				typename VComplex::SquaredAbs squaredAbs;
 				for (Size i=0; i<maxOuterIterations; i++) {
 					for (Size j=0; j<_iterationsWithoutCheck; j++) {
