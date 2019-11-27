@@ -17,6 +17,9 @@
 #include <immintrin.h>
 #endif
 
+// Put everything in a namespace forces inlining
+namespace {
+
 const auto numberOfCpuCores = std::thread::hardware_concurrency();
 
 // The PortableBinaryBitmap manages access to the pbm output file and provides
@@ -371,6 +374,8 @@ typedef Simd128DUnion SystemSimdUnion;
 #else
 typedef NoSimdUnion SystemSimdUnion;
 #endif
+
+} // end namespace
 
 int main(int argc, char** argv) {
 	typedef SystemSimdUnion::NumberType NumberType;
