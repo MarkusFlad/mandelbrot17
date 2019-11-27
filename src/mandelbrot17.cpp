@@ -353,7 +353,7 @@ public:
 				z = z.square(squaredAbs) + c;
 			}
 			if (squaredAbs > _squaredPointOfNoReturn) {
-				break;
+				return 0;
 			}
 		}
 		return squaredAbs.lteToPixels(_squaredPointOfNoReturn);
