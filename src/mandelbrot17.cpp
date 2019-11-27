@@ -315,7 +315,7 @@ public:
 			char* nextPixels = line.data;
 			const NumberType cImagValue = _cFirst.imag() + line.y*rasterImag;
 			for (const SimdUnion& cReals : cRealValues) {
-				VComplex c(cReals, cImagValue);
+				const VComplex c(cReals, cImagValue);
 				*nextPixels = _f(c);
 				nextPixels++;
 			}
