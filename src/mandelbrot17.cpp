@@ -339,18 +339,17 @@ public:
 	typedef VectorizedComplex<SimdUnion> VComplex;
 	typedef typename SimdUnion::NumberType NumberType;
 	typedef std::size_t Size;
+	constexpr static Size ITERATIONS_WITHOUT_CHECK = 5;
 
-	MandelbrotFunction(Size maxIterations, NumberType pointOfNoReturn = 2.0,
-			Size iterationsWithoutCheck = 5)
-	: _maxOuterIterations(maxIterations / iterationsWithoutCheck)
-	, _squaredPointOfNoReturn(pointOfNoReturn * pointOfNoReturn)
-	, _iterationsWithoutCheck(iterationsWithoutCheck) {
+	MandelbrotFunction(Size maxIterations, NumberType pointOfNoReturn = 2.0)
+	: _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK)
+	, _squaredPointOfNoReturn(pointOfNoReturn * pointOfNoReturn) {
 	}
 	char operator()(const VComplex& c) const {
 		VComplex z = c;
 		typename VComplex::SquaredAbs squaredAbs;
 		for (Size i=0; i<_maxOuterIterations; i++) {
-			for (Size j=0; j<_iterationsWithoutCheck; j++) {
+			for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
 				z = z.square(squaredAbs) + c;
 			}
 			if (squaredAbs > _squaredPointOfNoReturn) {
@@ -362,7 +361,6 @@ public:
 private:
 	Size _maxOuterIterations;
 	NumberType _squaredPointOfNoReturn;
-	Size _iterationsWithoutCheck;
 };
 
 #if defined(__AVX512BW__)
