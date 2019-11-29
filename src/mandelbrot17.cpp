@@ -349,25 +349,25 @@ public:
     , _squaredPointOfNoReturn(pointOfNoReturn * pointOfNoReturn) {
     }
     static void mandelbrotIterationsWithoutCheck(VComplex& z, const VComplex& c,
-    		typename VComplex::SquaredAbs& squaredAbs) {
-		for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
-			z = z.square(squaredAbs) + c;
-		}
+            typename VComplex::SquaredAbs& squaredAbs) {
+        for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
+            z = z.square(squaredAbs) + c;
+        }
     }
     char operator()(const VComplex& c, char lastPixels) const {
         VComplex z = c;
         typename VComplex::SquaredAbs squaredAbs;
         if (lastPixels == NO_PIXEL_IN_MANDELBROT_SET) {
-			for (Size i=0; i<_maxOuterIterations; i++) {
-				mandelbrotIterationsWithoutCheck(z, c, squaredAbs);
-				if (squaredAbs > _squaredPointOfNoReturn) {
-					return 0;
-				}
-			}
+            for (Size i=0; i<_maxOuterIterations; i++) {
+                mandelbrotIterationsWithoutCheck(z, c, squaredAbs);
+                if (squaredAbs > _squaredPointOfNoReturn) {
+                    return 0;
+                }
+            }
         } else {
-			for (Size i=0; i<_maxOuterIterations; i++) {
-				mandelbrotIterationsWithoutCheck(z, c, squaredAbs);
-			}
+            for (Size i=0; i<_maxOuterIterations; i++) {
+                mandelbrotIterationsWithoutCheck(z, c, squaredAbs);
+            }
         }
         return squaredAbs.lteToPixels(_squaredPointOfNoReturn);
     }
