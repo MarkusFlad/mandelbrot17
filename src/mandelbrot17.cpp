@@ -313,7 +313,7 @@ public:
         }
         for (Line& line : _canvas) {
             char* nextPixels = line.data;
-            char lastPixels = *nextPixels;
+            char lastPixels = 0;
             const NumberType cImagValue = _cFirst.imag() + line.y*rasterImag;
             for (const SimdUnion& cReals : cRealValues) {
                 const VComplex c(cReals, cImagValue);
@@ -342,13 +342,13 @@ public:
     typedef typename SimdUnion::NumberType NumberType;
     typedef std::size_t Size;
     constexpr static Size ITERATIONS_WITHOUT_CHECK = 5;
-    constexpr static char NO_PIXEL_IN_MANDELBROT_SET = 0x0;
+    constexpr static char ALL_IN_MANDELBROT_SET = 0xFF;
 
     MandelbrotFunction(Size maxIterations, NumberType pointOfNoReturn = 2.0)
     : _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK)
     , _squaredPointOfNoReturn(pointOfNoReturn * pointOfNoReturn) {
     }
-    static void mandelbrotIterationsWithoutCheck(VComplex& z, const VComplex& c,
+    static void doMandelbrotIterations(VComplex& z, const VComplex& c,
             typename VComplex::SquaredAbs& squaredAbs) {
         for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
             z = z.square(squaredAbs) + c;
@@ -357,16 +357,16 @@ public:
     char operator()(const VComplex& c, char lastPixels) const {
         VComplex z = c;
         typename VComplex::SquaredAbs squaredAbs;
-        if (lastPixels == NO_PIXEL_IN_MANDELBROT_SET) {
+        if (lastPixels == ALL_IN_MANDELBROT_SET) {
             for (Size i=0; i<_maxOuterIterations; i++) {
-                mandelbrotIterationsWithoutCheck(z, c, squaredAbs);
-                if (squaredAbs > _squaredPointOfNoReturn) {
-                    return 0;
-                }
+                doMandelbrotIterations(z, c, squaredAbs);
             }
         } else {
             for (Size i=0; i<_maxOuterIterations; i++) {
-                mandelbrotIterationsWithoutCheck(z, c, squaredAbs);
+                doMandelbrotIterations(z, c, squaredAbs);
+                if (squaredAbs > _squaredPointOfNoReturn) {
+                    return 0;
+                }
             }
         }
         return squaredAbs.lteToPixels(_squaredPointOfNoReturn);
