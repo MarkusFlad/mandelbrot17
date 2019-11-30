@@ -342,7 +342,7 @@ public:
     typedef typename SimdUnion::NumberType NumberType;
     typedef std::size_t Size;
     constexpr static Size ITERATIONS_WITHOUT_CHECK = 5;
-    constexpr static char NONE_IN_MANDELBROT_SET = 0x0;
+    constexpr static char NONE_IN_MANDELBROT_SET = 0x00;
 
     MandelbrotFunction(Size maxIterations, NumberType pointOfNoReturn = 2.0)
     : _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK)
@@ -361,7 +361,7 @@ public:
             for (Size i=0; i<_maxOuterIterations; i++) {
                 doMandelbrotIterations(z, c, squaredAbs);
                 if (squaredAbs > _squaredPointOfNoReturn) {
-                    return 0;
+                    return NONE_IN_MANDELBROT_SET;
                 }
             }
         } else {
