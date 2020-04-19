@@ -145,6 +145,10 @@ struct NoSimdUnion {
         std::copy(std::begin(other.val), std::end(other.val), std::begin(val));
         return *this;
     }
+    bool allBiggerThan(const NumberType s) const {
+        return std::all_of(std::begin(val), std::end(val),
+                [&s](auto v) { return v > s; });
+    }
     SimdRegisterType* reg;
     NumberType val[8];
 };
@@ -153,6 +157,14 @@ struct NoSimdUnion {
 union Simd128DUnion {
     typedef double NumberType;
     typedef __m128d SimdRegisterType;
+    bool allBiggerThan(const NumberType s) const {
+        SimdRegisterType su = SimdRegisterType{s, s};
+        return std::all_of(std::begin(reg), std::end(reg),
+                [&su](auto ar) {
+                    auto r = _mm_cmpgt_pd(ar, su);
+                    return _mm_testz_pd(r, r);
+                });
+    }
     SimdRegisterType reg[4];
     NumberType val[8];
 };
@@ -160,6 +172,14 @@ union Simd128DUnion {
 union Simd256DUnion {
     typedef double NumberType;
     typedef __m256d SimdRegisterType;
+    bool allBiggerThan(const NumberType s) const {
+        SimdRegisterType su = SimdRegisterType{s, s};
+        return std::all_of(std::begin(reg), std::end(reg),
+                [&su](auto ar) {
+                    auto r = _mm256_cmp_pd(ar, su, _CMP_GT_OS);
+                    return _mm256_testz_pd(r, r);
+                });
+    }
     SimdRegisterType reg[2];
     NumberType val[8];
 };
@@ -167,6 +187,13 @@ union Simd256DUnion {
 union Simd512DUnion {
     typedef double NumberType;
     typedef __m512d SimdRegisterType;
+    bool allBiggerThan(const NumberType s) const {
+        SimdRegisterType su = SimdRegisterType{s, s};
+        return std::all_of(std::begin(reg), std::end(reg),
+                [&su](auto ar) {
+                    return _mm512_cmp_pd_mask(ar, su, _CMP_GT_OS);
+                });
+    }
     SimdRegisterType reg[1];
     NumberType val[8];
 };
@@ -223,9 +250,7 @@ public:
             _squaredAbs.reg[i] = reg;
         }
         bool operator>(NumberType threshold) const {
-            const auto& sqrdAbsVals = _squaredAbs.val;
-            return std::all_of(std::begin(sqrdAbsVals), std::end(sqrdAbsVals),
-                    [&threshold](auto v) { return v>threshold; });
+            return _squaredAbs.allBiggerThan(threshold);
         }
         char lteToPixels(NumberType threshold) const {
             static_assert(numberOfNumbers<SimdUnion>() == 8, "lteToPixels() "
