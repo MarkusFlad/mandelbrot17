@@ -145,10 +145,6 @@ struct NoSimdUnion {
         std::copy(std::begin(other.val), std::end(other.val), std::begin(val));
         return *this;
     }
-    bool allBiggerThan(const NumberType s) const {
-        return std::all_of(std::begin(val), std::end(val),
-                [&s](auto v) { return v > s; });
-    }
     SimdRegisterType* reg;
     NumberType val[8];
 };
@@ -157,14 +153,6 @@ struct NoSimdUnion {
 union Simd128DUnion {
     typedef double NumberType;
     typedef __m128d SimdRegisterType;
-    bool allBiggerThan(const NumberType s) const {
-        SimdRegisterType su = SimdRegisterType{s, s};
-        return std::all_of(std::begin(reg), std::end(reg),
-                [&su](auto ar) {
-                    auto r = _mm_cmpgt_pd(ar, su);
-                    return _mm_testz_pd(r, r);
-                });
-    }
     SimdRegisterType reg[4];
     NumberType val[8];
 };
@@ -172,14 +160,6 @@ union Simd128DUnion {
 union Simd256DUnion {
     typedef double NumberType;
     typedef __m256d SimdRegisterType;
-    bool allBiggerThan(const NumberType s) const {
-        SimdRegisterType su = SimdRegisterType{s, s};
-        return std::all_of(std::begin(reg), std::end(reg),
-                [&su](auto ar) {
-                    auto r = _mm256_cmp_pd(ar, su, _CMP_GT_OS);
-                    return _mm256_testz_pd(r, r);
-                });
-    }
     SimdRegisterType reg[2];
     NumberType val[8];
 };
@@ -187,13 +167,6 @@ union Simd256DUnion {
 union Simd512DUnion {
     typedef double NumberType;
     typedef __m512d SimdRegisterType;
-    bool allBiggerThan(const NumberType s) const {
-        SimdRegisterType su = SimdRegisterType{s, s};
-        return std::all_of(std::begin(reg), std::end(reg),
-                [&su](auto ar) {
-                    return _mm512_cmp_pd_mask(ar, su, _CMP_GT_OS);
-                });
-    }
     SimdRegisterType reg[1];
     NumberType val[8];
 };
@@ -214,9 +187,10 @@ constexpr std::size_t numberOfRegisters() {
             numberOfNumbersInRegister<SimdUnion>();
 }
 template<class SimdUnion>
-void setValue(SimdUnion& simdUnion, typename SimdUnion::NumberType v) {
+void setValue(typename SimdUnion::SimdRegisterType* reg,
+        typename SimdUnion::NumberType v) {
     typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
-    SimdRegisterType* vValues = simdUnion.reg;
+    SimdRegisterType* vValues = reg;
     constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
     for (std::size_t i=0; i<numberOfNumbers<SimdUnion>(); i+=numbersInReg) {
         if constexpr (numbersInReg == 1) {
@@ -230,6 +204,39 @@ void setValue(SimdUnion& simdUnion, typename SimdUnion::NumberType v) {
         }
         vValues++;
     }
+}
+template<class SimdUnion>
+void setValue(SimdUnion& simdUnion, typename SimdUnion::NumberType v) {
+    setValue<SimdUnion>(simdUnion.reg, v);
+}
+template<class SimdUnion>
+bool allBiggerThan(const SimdUnion& simdUnion,
+        const typename SimdUnion::SimdRegisterType& other) {
+    constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
+    // Note: We use less or equal because NAN or inf on the left hand side
+    // leads to false - which is correct in our specific case.
+    if constexpr (numbersInReg == 1) {
+        return std::all_of(std::begin(simdUnion.val), std::end(simdUnion.val),
+                [&other](auto v) { return v > other; });
+    } else if constexpr (numbersInReg == 2) {
+        return std::all_of(std::begin(simdUnion.reg), std::end(simdUnion.reg),
+                [&other](auto ar) {
+                    auto r = _mm_cmple_pd(ar, other);
+                    return _mm_testz_pd(r, r);
+                });
+    } else if constexpr (numbersInReg == 4) {
+        return std::all_of(std::begin(simdUnion.reg), std::end(simdUnion.reg),
+                [&other](auto ar) {
+                    auto r = _mm256_cmp_pd(ar, other, _CMP_LE_OS);
+                    return _mm256_testz_pd(r, r);
+                });
+    } else if constexpr (numbersInReg == 8) {
+        return std::all_of(std::begin(simdUnion.reg), std::end(simdUnion.reg),
+                [&other](auto ar) {
+                    return !_mm512_cmp_pd_mask(ar, other, _CMP_LT_OS);
+                });
+    }
+    return false;
 }
 
 // VectorizedComplex provides a convenient interface to deal with complex
@@ -249,8 +256,8 @@ public:
         void simdReg(Size i, const SimdRegisterType& reg) {
             _squaredAbs.reg[i] = reg;
         }
-        bool operator>(NumberType threshold) const {
-            return _squaredAbs.allBiggerThan(threshold);
+        bool operator>(SimdRegisterType threshold) const {
+            return allBiggerThan(_squaredAbs, threshold);
         }
         char lteToPixels(NumberType threshold) const {
             static_assert(numberOfNumbers<SimdUnion>() == 8, "lteToPixels() "
@@ -365,13 +372,14 @@ class MandelbrotFunction {
 public:
     typedef VectorizedComplex<SimdUnion> VComplex;
     typedef typename SimdUnion::NumberType NumberType;
+    typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
     typedef std::size_t Size;
     constexpr static Size ITERATIONS_WITHOUT_CHECK = 5;
     constexpr static char NONE_IN_MANDELBROT_SET = 0x00;
 
     MandelbrotFunction(Size maxIterations, NumberType pointOfNoReturn = 2.0)
-    : _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK)
-    , _squaredPointOfNoReturn(pointOfNoReturn * pointOfNoReturn) {
+    : _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK) {
+        setValue(_squaredPointOfNoReturn, pointOfNoReturn * pointOfNoReturn);
     }
     static void doMandelbrotIterations(VComplex& z, const VComplex& c,
             typename VComplex::SquaredAbs& squaredAbs) {
@@ -385,7 +393,7 @@ public:
         if (lastPixels == NONE_IN_MANDELBROT_SET) {
             for (Size i=0; i<_maxOuterIterations; i++) {
                 doMandelbrotIterations(z, c, squaredAbs);
-                if (squaredAbs > _squaredPointOfNoReturn) {
+                if (squaredAbs > _squaredPointOfNoReturn.reg[0]) {
                     return NONE_IN_MANDELBROT_SET;
                 }
             }
@@ -394,11 +402,11 @@ public:
                 doMandelbrotIterations(z, c, squaredAbs);
             }
         }
-        return squaredAbs.lteToPixels(_squaredPointOfNoReturn);
+        return squaredAbs.lteToPixels(_squaredPointOfNoReturn.val[0]);
     }
 private:
     Size _maxOuterIterations;
-    NumberType _squaredPointOfNoReturn;
+    SimdUnion _squaredPointOfNoReturn;
 };
 
 #if defined(__AVX512BW__)
