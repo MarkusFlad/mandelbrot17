@@ -145,6 +145,18 @@ struct NoSimdUnion {
         std::copy(std::begin(other.val), std::end(other.val), std::begin(val));
         return *this;
     }
+    char lteToPixels(const NoSimdUnion& threshold) const {
+        char result = 0;
+        if (val[0] <= threshold.val[0]) result |= 0b10000000;
+        if (val[1] <= threshold.val[0]) result |= 0b01000000;
+        if (val[2] <= threshold.val[0]) result |= 0b00100000;
+        if (val[3] <= threshold.val[0]) result |= 0b00010000;
+        if (val[4] <= threshold.val[0]) result |= 0b00001000;
+        if (val[5] <= threshold.val[0]) result |= 0b00000100;
+        if (val[6] <= threshold.val[0]) result |= 0b00000010;
+        if (val[7] <= threshold.val[0]) result |= 0b00000001;
+        return result;
+    }
     SimdRegisterType* reg;
     NumberType val[8];
 };
@@ -155,13 +167,25 @@ union Simd128DUnion {
     typedef __m128d SimdRegisterType;
     SimdRegisterType reg[4];
     NumberType val[8];
-    char lteToPixels(const Simd128DUnion& threshold) {
-        // Compare two SIMD vectors and store -NAN(0xffffffffffffffff) if
-        // less equal, else store 0.
-        auto cmpResult = _mm_cmple_pd(reg[0], threshold.reg[0]);
-        //
-        _mm_movemask_pd(cmpResult);
-        return 0;
+//    char lteToPixels(const Simd128DUnion& threshold) {
+//        // Compare two SIMD vectors and store -NAN(0xffffffffffffffff) if
+//        // less equal, else store 0.
+//        auto cmpResult = _mm_cmple_pd(reg[0], threshold.reg[0]);
+//        //
+//        _mm_movemask_pd(cmpResult);
+//        return 0;
+//    }
+    char lteToPixels(const Simd128DUnion& threshold) const {
+        char result = 0;
+        if (val[0] <= threshold.val[0]) result |= 0b01000000;
+        if (val[1] <= threshold.val[0]) result |= 0b10000000;
+        if (val[2] <= threshold.val[0]) result |= 0b00010000;
+        if (val[3] <= threshold.val[0]) result |= 0b00100000;
+        if (val[4] <= threshold.val[0]) result |= 0b00000100;
+        if (val[5] <= threshold.val[0]) result |= 0b00001000;
+        if (val[6] <= threshold.val[0]) result |= 0b00000001;
+        if (val[7] <= threshold.val[0]) result |= 0b00000010;
+        return result;
     }
 };
 
@@ -170,6 +194,14 @@ union Simd256DUnion {
     typedef __m256d SimdRegisterType;
     SimdRegisterType reg[2];
     NumberType val[8];
+    char lteToPixels(const Simd256DUnion& threshold) const {
+        auto r0 = _mm256_cmp_pd(reg[0], threshold.reg[0], _CMP_LE_OQ);
+        auto r1 = _mm256_cmp_pd(reg[1], threshold.reg[0], _CMP_LE_OQ);
+        auto c0 = _mm256_movemask_pd(r0);
+        auto c1 = _mm256_movemask_pd(r1);
+        c0 <<= 4;
+        return c0 | c1;
+    }
 };
 
 union Simd512DUnion {
@@ -244,24 +276,15 @@ public:
         void simdReg(Size i, const SimdRegisterType& reg) {
             _squaredAbs.reg[i] = reg;
         }
-        bool operator>(NumberType threshold) const {
+        bool operator>(const SimdUnion& threshold) const {
             const auto& sqrdAbsVals = _squaredAbs.val;
             return std::all_of(std::begin(sqrdAbsVals), std::end(sqrdAbsVals),
-                    [&threshold](auto v) { return v>threshold; });
+                    [&threshold](auto v) { return v>threshold.val[0]; });
         }
-        char lteToPixels(NumberType threshold) const {
+        char lteToPixels(const SimdUnion& threshold) const {
             static_assert(numberOfNumbers<SimdUnion>() == 8, "lteToPixels() "
                     "is only implemented for SIMD with size of 8.");
-            char result = 0;
-            if (_squaredAbs.val[0] <= threshold) result |= 0b10000000;
-            if (_squaredAbs.val[1] <= threshold) result |= 0b01000000;
-            if (_squaredAbs.val[2] <= threshold) result |= 0b00100000;
-            if (_squaredAbs.val[3] <= threshold) result |= 0b00010000;
-            if (_squaredAbs.val[4] <= threshold) result |= 0b00001000;
-            if (_squaredAbs.val[5] <= threshold) result |= 0b00000100;
-            if (_squaredAbs.val[6] <= threshold) result |= 0b00000010;
-            if (_squaredAbs.val[7] <= threshold) result |= 0b00000001;
-            return result;
+            return _squaredAbs.lteToPixels(threshold);
         }
     private:
         SimdUnion _squaredAbs;
@@ -367,8 +390,8 @@ public:
     constexpr static char NONE_IN_MANDELBROT_SET = 0x00;
 
     MandelbrotFunction(Size maxIterations, NumberType pointOfNoReturn = 2.0)
-    : _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK)
-    , _squaredPointOfNoReturn(pointOfNoReturn * pointOfNoReturn) {
+    : _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK) {
+        setValue(_squaredPointOfNoReturn, pointOfNoReturn * pointOfNoReturn);
     }
     static void doMandelbrotIterations(VComplex& z, const VComplex& c,
             typename VComplex::SquaredAbs& squaredAbs) {
@@ -395,7 +418,7 @@ public:
     }
 private:
     Size _maxOuterIterations;
-    NumberType _squaredPointOfNoReturn;
+    SimdUnion _squaredPointOfNoReturn;
 };
 
 #if defined(__AVX512BW__)
