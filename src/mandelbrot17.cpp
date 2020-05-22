@@ -49,7 +49,7 @@ public:
     }
     struct Line {
         constexpr static Size pixelsPerWrite() {
-            return sizeof(data);
+            return CHAR_BIT;
         }
         Size y;
         Size width;
@@ -155,6 +155,14 @@ union Simd128DUnion {
     typedef __m128d SimdRegisterType;
     SimdRegisterType reg[4];
     NumberType val[8];
+    char lteToPixels(const Simd128DUnion& threshold) {
+        // Compare two SIMD vectors and store -NAN(0xffffffffffffffff) if
+        // less equal, else store 0.
+        auto cmpResult = _mm_cmple_pd(reg[0], threshold.reg[0]);
+        //
+        _mm_movemask_pd(cmpResult);
+        return 0;
+    }
 };
 
 union Simd256DUnion {
@@ -202,6 +210,20 @@ void setValue(SimdUnion& simdUnion, typename SimdUnion::NumberType v) {
             *vValues = SimdRegisterType{v, v, v, v, v, v, v, v};
         }
         vValues++;
+    }
+}
+// Special method that reverses the order of numbers in one register. This
+// helps for using SIMD functions to get bit masks already in the correct order
+// needed for the portable bitmap.
+template<class SimdUnion, class Functor>
+void setRealValuesReverseInReg(SimdUnion& simdUnion, Functor f) {
+    constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
+    std::size_t n=0;
+    for (std::size_t i=0; i<numberOfNumbers<SimdUnion>(); i+=numbersInReg) {
+        for (std::size_t j=numbersInReg; j>0; j--) {
+            simdUnion.val[i+j-1] = f(n);
+            n++;
+        }
     }
 }
 
@@ -306,9 +328,9 @@ public:
         cRealValues.reserve(_canvas.width() / Line::pixelsPerWrite());
         for (Size x=0; x<_canvas.width(); x+=Line::pixelsPerWrite()) {
             SimdUnion cReals;
-            for (Size i=0; i<Line::pixelsPerWrite(); i++) {
-                cReals.val[i] = _cFirst.real() + (x+i)*rasterReal;
-            }
+            setRealValuesReverseInReg(cReals, [&](Size i){
+                return _cFirst.real() + (x+i)*rasterReal;
+            });
             cRealValues.push_back(cReals);
         }
         for (Line& line : _canvas) {
