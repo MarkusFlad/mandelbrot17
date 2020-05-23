@@ -4,7 +4,7 @@
 // Contributed by Markus Flad
 //
 // compile with following g++ flags
-//  -std=c++17 -O3 -Wall -fomit-frame-pointer -march=native -mfpmath=sse -msse2 -mno-fma
+//  -std=c++17 -O3 -Wall -march=native -fno-exceptions -fno-rtti
 
 #include <string>
 #include <iostream>
@@ -301,8 +301,8 @@ public:
     : _reals(reals) {
         setValue(_imags, commonImagValue);
     }
-    VectorizedComplex& squareAndAdd(SimdUnion& squaredAbs,
-            const VectorizedComplex& c) {
+    VectorizedComplex& squareAndAdd(const VectorizedComplex& c,
+            SimdUnion& squaredAbs) {
         for (Size i=0; i<numberOfRegisters<SimdUnion>(); i++) {
             auto realSquared = _reals.reg[i] * _reals.reg[i];
             auto imagSquared = _imags.reg[i] * _imags.reg[i];
@@ -389,14 +389,14 @@ public:
     constexpr static char NONE_IN_MANDELBROT_SET = 0x00;
 
     MandelbrotFunction(Size maxIterations, NumberType pointOfNoReturn = 2.0)
-    : _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK) {
+    : _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK - 2) {
         setValueInReg<SimdUnion>(_squaredPointOfNoReturn,
                 pointOfNoReturn * pointOfNoReturn);
     }
     static void doMandelbrotIterations(VComplex& z, const VComplex& c,
             SimdUnion& squaredAbs) {
         for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
-            z = z.squareAndAdd(squaredAbs, c);
+            z = z.squareAndAdd(c, squaredAbs);
         }
     }
     char operator()(const VComplex& c, char lastPixels) const {
@@ -414,6 +414,8 @@ public:
                 doMandelbrotIterations(z, c, squaredAbs);
             }
         }
+        doMandelbrotIterations(z, c, squaredAbs);
+        doMandelbrotIterations(z, c, squaredAbs);
         return squaredAbs.lteToPixels(_squaredPointOfNoReturn);
     }
 private:
