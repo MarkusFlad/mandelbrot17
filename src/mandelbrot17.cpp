@@ -113,7 +113,8 @@ public:
         Size _dataStart;
         Size _dataPointerIncrement;
     };
-    std::vector<InterlacedCanvas> provideInterlacedCanvas(Size increment) {
+    std::vector<InterlacedCanvas> provideInterlacedCanvas(Size increment)
+            noexcept {
         std::vector<InterlacedCanvas> interlacedCanvasVector;
         for (Size yStart=0; yStart<increment; yStart++) {
             interlacedCanvasVector.emplace_back(*this, yStart, increment);
@@ -340,7 +341,7 @@ public:
     , _f(f) {
         static_assert(numberOfNumbers<SimdUnion>() == Line::pixelsPerWrite());
     }
-    void operator()() {
+    void operator()() noexcept {
         const NumberType realRange = _cLast.real() - _cFirst.real();
         const NumberType imagRange = _cLast.imag() - _cFirst.imag();
         const NumberType rasterReal = realRange / _canvas.width();
