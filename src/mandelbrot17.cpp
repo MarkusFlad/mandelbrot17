@@ -298,6 +298,7 @@ public:
 
     VectorizedComplex() = default;
     VectorizedComplex(const VectorizedComplex&) = default;
+    VectorizedComplex& operator=(const VectorizedComplex&) = default;
     VectorizedComplex(const SimdUnion& reals, NumberType commonImagValue)
     : _reals(reals) {
         setValue(_imags, commonImagValue);
@@ -397,7 +398,7 @@ public:
     static void doMandelbrotIterations(VComplex& z, const VComplex& c,
             SimdUnion& squaredAbs) {
         for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
-            z = z.squareAndAdd(c, squaredAbs);
+            z.squareAndAdd(c, squaredAbs);
         }
     }
     char operator()(const VComplex& c, char lastPixels) const {
