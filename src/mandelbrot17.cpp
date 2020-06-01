@@ -4,7 +4,7 @@
 // Contributed by Markus Flad
 //
 // compile with following g++ flags
-//  -std=c++17 -O3 -Wall -march=native -fno-exceptions -fno-rtti
+//  -std=c++17 -O3 -Wall -march=native
 
 #include <string>
 #include <iostream>
@@ -175,9 +175,12 @@ union Simd128DUnion {
     SimdRegisterType reg[4];
     NumberType val[8];
     bool operator>(const __m128d& threshold) const {
-        return std::all_of(std::begin(reg), std::end(reg),
+        // Note: Architectures like core2 provide SSE, but no VCMPGTPD
+        // (greater-than) instruction. Therefore we use vcmplepd (less-equal)
+        // and invert at the end.
+        return !std::all_of(std::begin(reg), std::end(reg),
                 [&threshold](__m128d r) {
-            __m128d cmpRes = _mm_cmpgt_pd(r, threshold);
+            __m128d cmpRes = _mm_cmple_pd(r, threshold);
             return _mm_movemask_pd(cmpRes);
         });
     }
@@ -203,10 +206,13 @@ union Simd256DUnion {
     SimdRegisterType reg[2];
     NumberType val[8];
     bool operator>(const __m256d& threshold) const {
-        return std::all_of(std::begin(reg), std::end(reg),
+        // Note: Architectures like Haswell provide AVX-2, but no VCMPGTPD
+        // (greater-than) instruction. Therefore we use vcmplepd (less-equal)
+        // and invert at the end.
+        return !std::all_of(std::begin(reg), std::end(reg),
                 [&threshold](__m256d r) {
             __m256d cmpRes = _mm256_cmp_pd(r, threshold, _CMP_LE_OQ);
-            return _mm256_testz_pd(cmpRes, cmpRes);
+            return !_mm256_testz_pd(cmpRes, cmpRes);
         });
     }
     char lteToPixels(const __m256d& threshold) const {
