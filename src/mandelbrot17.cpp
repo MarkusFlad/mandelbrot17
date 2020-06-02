@@ -168,7 +168,7 @@ struct NoSimdUnion {
     NumberType val[8];
 };
 
-#if defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
+#if defined(__SSE__)
 union Simd128DUnion {
     typedef double NumberType;
     typedef __m128d SimdRegisterType;
@@ -195,11 +195,13 @@ union Simd128DUnion {
         char c3 = _mm_movemask_pd(r3);
         c0 <<= 6;
         c1 <<= 4;
-        c3 <<= 2;
+        c2 <<= 2;
         return c0 | c1 | c2 | c3;
     }
 };
+#endif // defined(__SSE__)
 
+#if defined(__AVX__)
 union Simd256DUnion {
     typedef double NumberType;
     typedef __m256d SimdRegisterType;
@@ -224,7 +226,9 @@ union Simd256DUnion {
         return c0 | c1;
     }
 };
+#endif // defined(__AVX__)
 
+#if defined(__AVX512BW__)
 union Simd512DUnion {
     typedef double NumberType;
     typedef __m512d SimdRegisterType;
@@ -237,7 +241,7 @@ union Simd512DUnion {
         return _mm512_cmp_pd_mask(reg[0], threshold, _CMP_LE_OQ);
     }
 };
-#endif // defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
+#endif // defined(__AVX512BW__)
 
 template<class SimdUnion>
 constexpr std::size_t numberOfNumbers() {
