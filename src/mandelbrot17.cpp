@@ -4,7 +4,7 @@
 // Contributed by Markus Flad
 //
 // compile with following g++ flags
-//  -std=c++17 -O3 -Wall -fomit-frame-pointer -march=native -mfpmath=sse -msse2 -mno-fma
+//  -std=c++17 -O3 -Wall -march=native -mno-fma
 
 #include <string>
 #include <iostream>
@@ -49,7 +49,7 @@ public:
     }
     struct Line {
         constexpr static Size pixelsPerWrite() {
-            return sizeof(data);
+            return CHAR_BIT;
         }
         Size y;
         Size width;
@@ -113,7 +113,8 @@ public:
         Size _dataStart;
         Size _dataPointerIncrement;
     };
-    std::vector<InterlacedCanvas> provideInterlacedCanvas(Size increment) {
+    std::vector<InterlacedCanvas> provideInterlacedCanvas(Size increment)
+            noexcept {
         std::vector<InterlacedCanvas> interlacedCanvasVector;
         for (Size yStart=0; yStart<increment; yStart++) {
             interlacedCanvasVector.emplace_back(*this, yStart, increment);
@@ -145,6 +146,24 @@ struct NoSimdUnion {
         std::copy(std::begin(other.val), std::end(other.val), std::begin(val));
         return *this;
     }
+    bool operator>(const double& threshold) const {
+        return std::all_of(std::begin(val), std::end(val),
+                [&threshold](double v) {
+            return v > threshold;
+        });
+    }
+    char lteToPixels(double threshold) const {
+        char result = 0;
+        if (val[0] <= threshold) result |= 0b10000000;
+        if (val[1] <= threshold) result |= 0b01000000;
+        if (val[2] <= threshold) result |= 0b00100000;
+        if (val[3] <= threshold) result |= 0b00010000;
+        if (val[4] <= threshold) result |= 0b00001000;
+        if (val[5] <= threshold) result |= 0b00000100;
+        if (val[6] <= threshold) result |= 0b00000010;
+        if (val[7] <= threshold) result |= 0b00000001;
+        return result;
+    }
     SimdRegisterType* reg;
     NumberType val[8];
 };
@@ -155,6 +174,30 @@ union Simd128DUnion {
     typedef __m128d SimdRegisterType;
     SimdRegisterType reg[4];
     NumberType val[8];
+    bool operator>(const __m128d& threshold) const {
+        // Note: Architectures like core2 provide SSE, but no VCMPGTPD
+        // (greater-than) instruction. Therefore we use vcmplepd (less-equal)
+        // and invert.
+        return std::all_of(std::begin(reg), std::end(reg),
+                [&threshold](__m128d r) {
+            __m128d cmpRes = _mm_cmple_pd(r, threshold);
+            return !_mm_movemask_pd(cmpRes);
+        });
+    }
+    char lteToPixels(const __m128d& threshold) const {
+        __m128d r0 = _mm_cmple_pd(reg[0], threshold);
+        __m128d r1 = _mm_cmple_pd(reg[1], threshold);
+        __m128d r2 = _mm_cmple_pd(reg[2], threshold);
+        __m128d r3 = _mm_cmple_pd(reg[3], threshold);
+        char c0 = _mm_movemask_pd(r0);
+        char c1 = _mm_movemask_pd(r1);
+        char c2 = _mm_movemask_pd(r2);
+        char c3 = _mm_movemask_pd(r3);
+        c0 <<= 6;
+        c1 <<= 4;
+        c2 <<= 2;
+        return c0 | c1 | c2 | c3;
+    }
 };
 
 union Simd256DUnion {
@@ -162,6 +205,23 @@ union Simd256DUnion {
     typedef __m256d SimdRegisterType;
     SimdRegisterType reg[2];
     NumberType val[8];
+    bool operator>(const __m256d& threshold) const {
+        // Note: Architectures like Haswell provide AVX-2, but no VCMPGTPD
+        // (greater-than) instruction. Therefore we use vcmplepd (less-equal).
+        return std::all_of(std::begin(reg), std::end(reg),
+                [&threshold](__m256d r) {
+            __m256d cmpRes = _mm256_cmp_pd(r, threshold, _CMP_LE_OQ);
+            return _mm256_testz_pd(cmpRes, cmpRes);
+        });
+    }
+    char lteToPixels(const __m256d& threshold) const {
+        __m256d r0 = _mm256_cmp_pd(reg[0], threshold, _CMP_LE_OQ);
+        __m256d r1 = _mm256_cmp_pd(reg[1], threshold, _CMP_LE_OQ);
+        char c0 = _mm256_movemask_pd(r0);
+        char c1 = _mm256_movemask_pd(r1);
+        c0 <<= 4;
+        return c0 | c1;
+    }
 };
 
 union Simd512DUnion {
@@ -169,6 +229,12 @@ union Simd512DUnion {
     typedef __m512d SimdRegisterType;
     SimdRegisterType reg[1];
     NumberType val[8];
+    bool operator>(const __m512d& threshold) const {
+        return _mm512_cmp_pd_mask(reg[0], threshold, _CMP_GT_OQ);
+    }
+    char lteToPixels(const __m512d& threshold) const {
+        return _mm512_cmp_pd_mask(reg[0], threshold, _CMP_LE_OQ);
+    }
 };
 #endif // defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 
@@ -187,21 +253,42 @@ constexpr std::size_t numberOfRegisters() {
             numberOfNumbersInRegister<SimdUnion>();
 }
 template<class SimdUnion>
+void setValueInReg(typename SimdUnion::SimdRegisterType& reg,
+              typename SimdUnion::NumberType v) {
+    typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
+    constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
+    if constexpr (numbersInReg == 1) {
+        reg = v;
+    } else if constexpr (numbersInReg == 2) {
+        reg = SimdRegisterType{v, v};
+    } else if constexpr (numbersInReg == 4) {
+        reg = SimdRegisterType{v, v, v, v};
+    } else if constexpr (numbersInReg == 8) {
+        reg = SimdRegisterType{v, v, v, v, v, v, v, v};
+    }
+}
+template<class SimdUnion>
 void setValue(SimdUnion& simdUnion, typename SimdUnion::NumberType v) {
     typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
     SimdRegisterType* vValues = simdUnion.reg;
     constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
     for (std::size_t i=0; i<numberOfNumbers<SimdUnion>(); i+=numbersInReg) {
-        if constexpr (numbersInReg == 1) {
-            *vValues = v;
-        } else if constexpr (numbersInReg == 2) {
-            *vValues = SimdRegisterType{v, v};
-        } else if constexpr (numbersInReg == 4) {
-            *vValues = SimdRegisterType{v, v, v, v};
-        } else if constexpr (numbersInReg == 8) {
-            *vValues = SimdRegisterType{v, v, v, v, v, v, v, v};
-        }
+        setValueInReg<SimdUnion>(*vValues, v);
         vValues++;
+    }
+}
+// Special method that reverses the order of numbers in one register. This
+// helps for using SIMD functions to get bit masks already in the correct order
+// needed for the portable bitmap.
+template<class SimdUnion, class Functor>
+void setRealValuesReverseInReg(SimdUnion& simdUnion, Functor f) {
+    constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
+    std::size_t n=0;
+    for (std::size_t i=0; i<numberOfNumbers<SimdUnion>(); i+=numbersInReg) {
+        for (std::size_t j=numbersInReg; j>0; j--) {
+            simdUnion.val[i+j-1] = f(n);
+            n++;
+        }
     }
 }
 
@@ -214,61 +301,24 @@ public:
     typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
     typedef std::size_t Size;
 
-    // SquaredAbs is passed to special VectorizedComplex methods that calculate
-    // the squared absolute value of the complex number as an intermediate.
-    // This means that the calculation does not have to be done twice.
-    class SquaredAbs {
-    public:
-        void simdReg(Size i, const SimdRegisterType& reg) {
-            _squaredAbs.reg[i] = reg;
-        }
-        bool operator>(NumberType threshold) const {
-            const auto& sqrdAbsVals = _squaredAbs.val;
-            return std::all_of(std::begin(sqrdAbsVals), std::end(sqrdAbsVals),
-                    [&threshold](auto v) { return v>threshold; });
-        }
-        char lteToPixels(NumberType threshold) const {
-            static_assert(numberOfNumbers<SimdUnion>() == 8, "lteToPixels() "
-                    "is only implemented for SIMD with size of 8.");
-            char result = 0;
-            if (_squaredAbs.val[0] <= threshold) result |= 0b10000000;
-            if (_squaredAbs.val[1] <= threshold) result |= 0b01000000;
-            if (_squaredAbs.val[2] <= threshold) result |= 0b00100000;
-            if (_squaredAbs.val[3] <= threshold) result |= 0b00010000;
-            if (_squaredAbs.val[4] <= threshold) result |= 0b00001000;
-            if (_squaredAbs.val[5] <= threshold) result |= 0b00000100;
-            if (_squaredAbs.val[6] <= threshold) result |= 0b00000010;
-            if (_squaredAbs.val[7] <= threshold) result |= 0b00000001;
-            return result;
-        }
-    private:
-        SimdUnion _squaredAbs;
-    };
     VectorizedComplex() = default;
     VectorizedComplex(const VectorizedComplex&) = default;
+    VectorizedComplex& operator=(const VectorizedComplex&) = default;
     VectorizedComplex(const SimdUnion& reals, NumberType commonImagValue)
     : _reals(reals) {
         setValue(_imags, commonImagValue);
     }
-    VectorizedComplex& square(SquaredAbs& squaredAbs) {
+    VectorizedComplex& squareAndAdd(SimdUnion& squaredAbs,
+            const VectorizedComplex& c) {
         for (Size i=0; i<numberOfRegisters<SimdUnion>(); i++) {
             auto realSquared = _reals.reg[i] * _reals.reg[i];
             auto imagSquared = _imags.reg[i] * _imags.reg[i];
             auto realTimesImag = _reals.reg[i] * _imags.reg[i];
-            _reals.reg[i] = realSquared - imagSquared;
-            _imags.reg[i] = realTimesImag + realTimesImag;
-            squaredAbs.simdReg(i, realSquared + imagSquared);
+            _reals.reg[i] = realSquared - imagSquared + c._reals.reg[i];
+            _imags.reg[i] = realTimesImag + realTimesImag + c._imags.reg[i];
+            squaredAbs.reg[i] = realSquared + imagSquared;
         }
         return *this;
-    }
-    friend VectorizedComplex operator+(const VectorizedComplex& lhs,
-            const VectorizedComplex& rhs) {
-        VectorizedComplex resultNumbers;
-        for (Size i=0; i<numberOfRegisters<SimdUnion>(); i++) {
-            resultNumbers._reals.reg[i] = lhs._reals.reg[i] + rhs._reals.reg[i];
-            resultNumbers._imags.reg[i] = lhs._imags.reg[i] + rhs._imags.reg[i];
-        }
-        return resultNumbers;
     }
 private:
     SimdUnion _reals;
@@ -297,7 +347,7 @@ public:
     , _f(f) {
         static_assert(numberOfNumbers<SimdUnion>() == Line::pixelsPerWrite());
     }
-    void operator()() {
+    void operator()() noexcept {
         const NumberType realRange = _cLast.real() - _cFirst.real();
         const NumberType imagRange = _cLast.imag() - _cFirst.imag();
         const NumberType rasterReal = realRange / _canvas.width();
@@ -306,9 +356,9 @@ public:
         cRealValues.reserve(_canvas.width() / Line::pixelsPerWrite());
         for (Size x=0; x<_canvas.width(); x+=Line::pixelsPerWrite()) {
             SimdUnion cReals;
-            for (Size i=0; i<Line::pixelsPerWrite(); i++) {
-                cReals.val[i] = _cFirst.real() + (x+i)*rasterReal;
-            }
+            setRealValuesReverseInReg(cReals, [&](Size i){
+                return _cFirst.real() + (x+i)*rasterReal;
+            });
             cRealValues.push_back(cReals);
         }
         for (Line& line : _canvas) {
@@ -339,24 +389,26 @@ template <class SimdUnion>
 class MandelbrotFunction {
 public:
     typedef VectorizedComplex<SimdUnion> VComplex;
+    typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
     typedef typename SimdUnion::NumberType NumberType;
     typedef std::size_t Size;
     constexpr static Size ITERATIONS_WITHOUT_CHECK = 5;
     constexpr static char NONE_IN_MANDELBROT_SET = 0x00;
 
     MandelbrotFunction(Size maxIterations, NumberType pointOfNoReturn = 2.0)
-    : _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK)
-    , _squaredPointOfNoReturn(pointOfNoReturn * pointOfNoReturn) {
+    : _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK - 2) {
+        setValueInReg<SimdUnion>(_squaredPointOfNoReturn,
+                pointOfNoReturn * pointOfNoReturn);
     }
-    static void doMandelbrotIterations(VComplex& z, const VComplex& c,
-            typename VComplex::SquaredAbs& squaredAbs) {
+    inline static void doMandelbrotIterations(VComplex& z, const VComplex& c,
+            SimdUnion& squaredAbs) {
         for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
-            z = z.square(squaredAbs) + c;
+            z.squareAndAdd(squaredAbs, c);
         }
     }
     char operator()(const VComplex& c, char lastPixels) const {
         VComplex z = c;
-        typename VComplex::SquaredAbs squaredAbs;
+        SimdUnion squaredAbs;
         if (lastPixels == NONE_IN_MANDELBROT_SET) {
             for (Size i=0; i<_maxOuterIterations; i++) {
                 doMandelbrotIterations(z, c, squaredAbs);
@@ -369,11 +421,13 @@ public:
                 doMandelbrotIterations(z, c, squaredAbs);
             }
         }
+        doMandelbrotIterations(z, c, squaredAbs);
+        doMandelbrotIterations(z, c, squaredAbs);
         return squaredAbs.lteToPixels(_squaredPointOfNoReturn);
     }
 private:
     Size _maxOuterIterations;
-    NumberType _squaredPointOfNoReturn;
+    SimdRegisterType _squaredPointOfNoReturn;
 };
 
 #if defined(__AVX512BW__)

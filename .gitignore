@@ -3,3 +3,4 @@ Debug/
 Release/
 *.pbm
 
+/Release-core2/
