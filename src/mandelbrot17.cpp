@@ -16,6 +16,7 @@
 #if defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 #include <immintrin.h>
 #endif
+#include <stdlib.h>
 
 // Put everything in a namespace forces inlining
 namespace {
@@ -133,7 +134,7 @@ private:
 
 // If the system does not support SIMD, NoSimdUnion can be used.
 struct NoSimdUnion {
-    using NumberType = double ;
+    using NumberType = double;
     using SimdRegisterType = double;
     NoSimdUnion()
     : reg(val) {
@@ -170,7 +171,7 @@ struct NoSimdUnion {
 
 #if defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 union Simd128DUnion {
-    using NumberType = double ;
+    using NumberType = double;
     using SimdRegisterType = __m128d;
     SimdRegisterType reg[4];
     NumberType val[8];
@@ -449,8 +450,7 @@ int main(int argc, char** argv) {
             MandelbrotFunction<SystemSimdUnion>>;
     std::size_t n = 16000;
     if (argc>=2) {
-        std::stringstream nss (argv[1]);
-        nss >> n;
+        n = atoi(argv[1]);
     }
     const std::size_t maxIterations = 50;
     PortableBinaryBitmap pbm(std::cout, n, n);
