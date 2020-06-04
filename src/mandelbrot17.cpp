@@ -399,7 +399,7 @@ public:
     constexpr static char NONE_IN_MANDELBROT_SET = 0x00;
 
     MandelbrotFunction(Size maxIterations, NumberType pointOfNoReturn = 2.0)
-    : _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK) {
+    : _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK - 2) {
         setValueInReg<SimdUnion>(_squaredPointOfNoReturn,
                 pointOfNoReturn * pointOfNoReturn);
     }
@@ -424,6 +424,8 @@ public:
                 doMandelbrotIterations(z, c, squaredAbs);
             }
         }
+        doMandelbrotIterations(z, c, squaredAbs);
+        doMandelbrotIterations(z, c, squaredAbs);
         return squaredAbs.lteToPixels(_squaredPointOfNoReturn);
     }
 private:
