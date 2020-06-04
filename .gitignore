@@ -1,5 +1,6 @@
 .settings/
 Debug/
 Release/
+Release-core2/
 *.pbm
 
