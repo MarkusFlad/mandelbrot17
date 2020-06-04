@@ -403,7 +403,7 @@ public:
         setValueInReg<SimdUnion>(_squaredPointOfNoReturn,
                 pointOfNoReturn * pointOfNoReturn);
     }
-    static void doMandelbrotIterations(VComplex& z, const VComplex& c,
+    inline static void doMandelbrotIterations(VComplex& z, const VComplex& c,
             SimdUnion& squaredAbs) {
         for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
             z = z.square(squaredAbs) + c;
