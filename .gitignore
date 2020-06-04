@@ -4,3 +4,4 @@ Release/
 Release-core2/
 *.pbm
 
+/Release-core2/
