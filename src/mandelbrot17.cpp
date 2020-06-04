@@ -26,7 +26,7 @@ const auto numberOfCpuCores = std::thread::hardware_concurrency();
 // interlaced canvases that allow threads to write to the bitmap in parallel.
 class PortableBinaryBitmap {
 public:
-    typedef std::size_t Size;
+    using Size=std::size_t;
     PortableBinaryBitmap(std::ostream& ostr, Size width, Size height)
     : _ostr (ostr)
     , _width (roundToMultiple(width, CHAR_BIT))
@@ -133,8 +133,8 @@ private:
 
 // If the system does not support SIMD, NoSimdUnion can be used.
 struct NoSimdUnion {
-    typedef double NumberType;
-    typedef double SimdRegisterType;
+    using NumberType = double ;
+    using SimdRegisterType = double;
     NoSimdUnion()
     : reg(val) {
     }
@@ -170,8 +170,8 @@ struct NoSimdUnion {
 
 #if defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 union Simd128DUnion {
-    typedef double NumberType;
-    typedef __m128d SimdRegisterType;
+    using NumberType = double ;
+    using SimdRegisterType = __m128d;
     SimdRegisterType reg[4];
     NumberType val[8];
     bool operator>(const __m128d& threshold) const {
@@ -201,8 +201,8 @@ union Simd128DUnion {
 };
 
 union Simd256DUnion {
-    typedef double NumberType;
-    typedef __m256d SimdRegisterType;
+    using NumberType = double;
+    using SimdRegisterType = __m256d;
     SimdRegisterType reg[2];
     NumberType val[8];
     bool operator>(const __m256d& threshold) const {
@@ -225,8 +225,8 @@ union Simd256DUnion {
 };
 
 union Simd512DUnion {
-    typedef double NumberType;
-    typedef __m512d SimdRegisterType;
+    using NumberType = double;
+    using SimdRegisterType = __m512d;
     SimdRegisterType reg[1];
     NumberType val[8];
     bool operator>(const __m512d& threshold) const {
@@ -255,7 +255,7 @@ constexpr std::size_t numberOfRegisters() {
 template<class SimdUnion>
 void setValueInReg(typename SimdUnion::SimdRegisterType& reg,
               typename SimdUnion::NumberType v) {
-    typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
+    using SimdRegisterType = typename SimdUnion::SimdRegisterType;
     constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
     if constexpr (numbersInReg == 1) {
         reg = v;
@@ -269,7 +269,7 @@ void setValueInReg(typename SimdUnion::SimdRegisterType& reg,
 }
 template<class SimdUnion>
 void setValue(SimdUnion& simdUnion, typename SimdUnion::NumberType v) {
-    typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
+    using SimdRegisterType = typename SimdUnion::SimdRegisterType;
     SimdRegisterType* vValues = simdUnion.reg;
     constexpr auto numbersInReg = numberOfNumbersInRegister<SimdUnion>();
     for (std::size_t i=0; i<numberOfNumbers<SimdUnion>(); i+=numbersInReg) {
@@ -297,9 +297,9 @@ void setRealValuesReverseInReg(SimdUnion& simdUnion, Functor f) {
 template <class SimdUnion>
 class VectorizedComplex {
 public:
-    typedef typename SimdUnion::NumberType NumberType;
-    typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
-    typedef std::size_t Size;
+    using NumberType = typename SimdUnion::NumberType;
+    using SimdRegisterType = typename SimdUnion::SimdRegisterType;
+    using Size = std::size_t;
 
     VectorizedComplex() = default;
     VectorizedComplex(const VectorizedComplex&) = default;
@@ -333,10 +333,10 @@ private:
 template <class SimdUnion, class Functor>
 class ComplexPlaneCalculator {
 public:
-    typedef VectorizedComplex<SimdUnion> VComplex;
-    typedef typename SimdUnion::NumberType NumberType;
-    typedef typename PortableBinaryBitmap::Line Line;
-    typedef std::size_t Size;
+    using VComplex = VectorizedComplex<SimdUnion>;
+    using NumberType = typename SimdUnion::NumberType;
+    using Line = typename PortableBinaryBitmap::Line;
+    using Size = std::size_t;
 
     ComplexPlaneCalculator(const std::complex<NumberType>& cFirst,
             const std::complex<NumberType>& cLast,
@@ -388,10 +388,10 @@ private:
 template <class SimdUnion>
 class MandelbrotFunction {
 public:
-    typedef VectorizedComplex<SimdUnion> VComplex;
-    typedef typename SimdUnion::SimdRegisterType SimdRegisterType;
-    typedef typename SimdUnion::NumberType NumberType;
-    typedef std::size_t Size;
+    using VComplex = VectorizedComplex<SimdUnion>;
+    using SimdRegisterType = typename SimdUnion::SimdRegisterType;
+    using NumberType = typename SimdUnion::NumberType;
+    using Size = std::size_t;
     constexpr static Size ITERATIONS_WITHOUT_CHECK = 5;
     constexpr static char NONE_IN_MANDELBROT_SET = 0x00;
 
@@ -431,22 +431,22 @@ private:
 };
 
 #if defined(__AVX512BW__)
-typedef Simd512DUnion SystemSimdUnion;
+using SystemSimdUnion = Simd512DUnion;
 #elif defined __AVX__
-typedef Simd256DUnion SystemSimdUnion;
+using SystemSimdUnion = Simd256DUnion;
 #elif defined __SSE__
-typedef Simd128DUnion SystemSimdUnion;
+using SystemSimdUnion = Simd128DUnion;
 #else
-typedef NoSimdUnion SystemSimdUnion;
+using SystemSimdUnion = NoSimdUnion;
 #endif
 
 } // end namespace
 
 int main(int argc, char** argv) {
-    typedef SystemSimdUnion::NumberType NumberType;
-    typedef std::complex<NumberType> ComplexNumber;
-    typedef ComplexPlaneCalculator<SystemSimdUnion,
-            MandelbrotFunction<SystemSimdUnion>> MandelbrotCalculator;
+    using NumberType = SystemSimdUnion::NumberType;
+    using ComplexNumber = std::complex<NumberType>;
+    using MandelbrotCalculator = ComplexPlaneCalculator<SystemSimdUnion,
+            MandelbrotFunction<SystemSimdUnion>>;
     std::size_t n = 16000;
     if (argc>=2) {
         std::stringstream nss (argv[1]);
