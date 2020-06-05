@@ -309,8 +309,8 @@ public:
     : _reals(reals) {
         setValue(_imags, commonImagValue);
     }
-    VectorizedComplex& squareAndAdd(SimdUnion& squaredAbs,
-            const VectorizedComplex& c) {
+    VectorizedComplex& squareAndAdd(const VectorizedComplex& c,
+            SimdUnion& squaredAbs) {
         for (Size i=0; i<numberOfRegisters<SimdUnion>(); i++) {
             auto realSquared = _reals.reg[i] * _reals.reg[i];
             auto imagSquared = _imags.reg[i] * _imags.reg[i];
@@ -404,7 +404,7 @@ public:
     inline static void doMandelbrotIterations(VComplex& z, const VComplex& c,
             SimdUnion& squaredAbs) {
         for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
-            z.squareAndAdd(squaredAbs, c);
+            z.squareAndAdd(c, squaredAbs);
         }
     }
     char operator()(const VComplex& c, char lastPixels) const {
