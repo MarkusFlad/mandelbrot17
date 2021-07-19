@@ -431,7 +431,9 @@ private:
     SimdRegisterType _squaredPointOfNoReturn;
 };
 
-#if defined(__AVX512BW__)
+#if defined(NO_INTRINSICS)
+using SystemSimdUnion = NoSimdUnion;
+#elif defined(__AVX512BW__)
 using SystemSimdUnion = Simd512DUnion;
 #elif defined __AVX__
 using SystemSimdUnion = Simd256DUnion;
