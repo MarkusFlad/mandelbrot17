@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <thread>
 #include <climits>
+#include <version>
 #if defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
 #include <immintrin.h>
 #endif
@@ -132,18 +133,20 @@ private:
     std::vector<char> _data;
 };
 
-// If the system does not support SIMD, NoSimdUnion can be used.
-struct NoSimdUnion {
+#if defined (NO_INTRINSICS_V1)
+// This is the original version of the SIMD data type that can be used when SIMD
+// intrinsics cannot or should not be used.
+struct NoSimdUnion1 {
     using NumberType = double;
     using SimdRegisterType = double;
-    NoSimdUnion()
+    NoSimdUnion1()
     : reg(val) {
     }
-    NoSimdUnion(const NoSimdUnion& other)
+    NoSimdUnion1(const NoSimdUnion1& other)
     : reg(val) {
         std::copy(std::begin(other.val), std::end(other.val), std::begin(val));
     }
-    NoSimdUnion& operator=(const NoSimdUnion& other) {
+    NoSimdUnion1& operator=(const NoSimdUnion1& other) {
         std::copy(std::begin(other.val), std::end(other.val), std::begin(val));
         return *this;
     }
@@ -167,14 +170,143 @@ struct NoSimdUnion {
     }
     SimdRegisterType* reg;
     NumberType val[8];
+    constexpr static std::size_t SIZE_OF_VAL = sizeof(val);
 };
+using SystemSimdUnion = NoSimdUnion1;
 
-#if defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
+#elif defined (NO_INTRINSICS_V2)
+// This is the new version of the SIMD data type that can be used when SIMD
+// intrinsics cannot or should not be used. It uses a C array for the reg data
+// member, which, unlike the val data member, is involved in the calculations.
+struct NoSimdUnion2 {
+    using NumberType = double;
+    using SimdRegisterType = double;
+    NoSimdUnion2()
+    : val(reg) {
+    }
+    NoSimdUnion2(const NoSimdUnion2& other)
+    : val(reg) {
+        std::copy(std::begin(other.reg), std::end(other.reg), std::begin(reg));
+    }
+    NoSimdUnion2& operator=(const NoSimdUnion2& other) {
+        std::copy(std::begin(other.reg), std::end(other.reg), std::begin(reg));
+        return *this;
+    }
+    bool operator>(const double& threshold) const {
+        return std::all_of(std::begin(reg), std::end(reg),
+                [&threshold](double v) {
+            return v > threshold;
+        });
+    }
+    char lteToPixels(double threshold) const {
+        char result = 0;
+        if (reg[0] <= threshold) result |= 0b10000000;
+        if (reg[1] <= threshold) result |= 0b01000000;
+        if (reg[2] <= threshold) result |= 0b00100000;
+        if (reg[3] <= threshold) result |= 0b00010000;
+        if (reg[4] <= threshold) result |= 0b00001000;
+        if (reg[5] <= threshold) result |= 0b00000100;
+        if (reg[6] <= threshold) result |= 0b00000010;
+        if (reg[7] <= threshold) result |= 0b00000001;
+        return result;
+    }
+    SimdRegisterType reg[8];
+    NumberType* val;
+    constexpr static std::size_t SIZE_OF_VAL = sizeof(reg);
+};
+using SystemSimdUnion = NoSimdUnion2;
+
+#elif defined (NO_INTRINSICS_V3)
+// This is another new version of the SIMD data type that can be used when SIMD
+// intrinsics cannot or should not be used. It uses a C array for the reg data
+// member, which, unlike the val data member, is involved in the calculations.
+union NoSimdUnion3 {
+    using NumberType = double;
+    using SimdRegisterType = double;
+    NoSimdUnion3() {
+    }
+    NoSimdUnion3(const NoSimdUnion3& other) {
+        std::copy(std::begin(other.reg), std::end(other.reg), std::begin(reg));
+    }
+    NoSimdUnion3& operator=(const NoSimdUnion3& other) {
+        std::copy(std::begin(other.reg), std::end(other.reg), std::begin(reg));
+        return *this;
+    }
+    bool operator>(const double& threshold) const {
+        return std::all_of(std::begin(reg), std::end(reg),
+                [&threshold](double v) {
+            return v > threshold;
+        });
+    }
+    char lteToPixels(double threshold) const {
+        char result = 0;
+        if (reg[0] <= threshold) result |= 0b10000000;
+        if (reg[1] <= threshold) result |= 0b01000000;
+        if (reg[2] <= threshold) result |= 0b00100000;
+        if (reg[3] <= threshold) result |= 0b00010000;
+        if (reg[4] <= threshold) result |= 0b00001000;
+        if (reg[5] <= threshold) result |= 0b00000100;
+        if (reg[6] <= threshold) result |= 0b00000010;
+        if (reg[7] <= threshold) result |= 0b00000001;
+        return result;
+    }
+    SimdRegisterType reg[8];
+    SimdRegisterType val[8];
+    constexpr static std::size_t SIZE_OF_VAL = sizeof(reg);
+};
+using SystemSimdUnion = NoSimdUnion3;
+
+
+#elif defined(__AVX512BW__)
+union Simd512DUnion {
+    using NumberType = double;
+    using SimdRegisterType = __m512d;
+    SimdRegisterType reg[1];
+    NumberType val[8];
+    constexpr static std::size_t SIZE_OF_VAL = sizeof(val);
+    bool operator>(const __m512d& threshold) const {
+        return _mm512_cmp_pd_mask(reg[0], threshold, _CMP_GT_OQ);
+    }
+    char lteToPixels(const __m512d& threshold) const {
+        return _mm512_cmp_pd_mask(reg[0], threshold, _CMP_LE_OQ);
+    }
+};
+using SystemSimdUnion = Simd512DUnion;
+
+#elif defined(__AVX__)
+union Simd256DUnion {
+    using NumberType = double;
+    using SimdRegisterType = __m256d;
+    SimdRegisterType reg[2];
+    NumberType val[8];
+    constexpr static std::size_t SIZE_OF_VAL = sizeof(val);
+    bool operator>(const __m256d& threshold) const {
+        // Note: Architectures like Haswell provide AVX-2, but no VCMPGTPD
+        // (greater-than) instruction. Therefore we use vcmplepd (less-equal).
+        return std::all_of(std::begin(reg), std::end(reg),
+                [&threshold](__m256d r) {
+            __m256d cmpRes = _mm256_cmp_pd(r, threshold, _CMP_LE_OQ);
+            return _mm256_testz_pd(cmpRes, cmpRes);
+        });
+    }
+    char lteToPixels(const __m256d& threshold) const {
+        __m256d r0 = _mm256_cmp_pd(reg[0], threshold, _CMP_LE_OQ);
+        __m256d r1 = _mm256_cmp_pd(reg[1], threshold, _CMP_LE_OQ);
+        char c0 = _mm256_movemask_pd(r0);
+        char c1 = _mm256_movemask_pd(r1);
+        c0 <<= 4;
+        return c0 | c1;
+    }
+};
+using SystemSimdUnion = Simd256DUnion;
+
+#elif defined(__SSE__)
 union Simd128DUnion {
     using NumberType = double;
     using SimdRegisterType = __m128d;
     SimdRegisterType reg[4];
     NumberType val[8];
+    constexpr static std::size_t SIZE_OF_VAL = sizeof(val);
     bool operator>(const __m128d& threshold) const {
         // Note: Architectures like core2 provide SSE, but no VCMPGTPD
         // (greater-than) instruction. Therefore we use vcmplepd (less-equal)
@@ -200,48 +332,12 @@ union Simd128DUnion {
         return c0 | c1 | c2 | c3;
     }
 };
-
-union Simd256DUnion {
-    using NumberType = double;
-    using SimdRegisterType = __m256d;
-    SimdRegisterType reg[2];
-    NumberType val[8];
-    bool operator>(const __m256d& threshold) const {
-        // Note: Architectures like Haswell provide AVX-2, but no VCMPGTPD
-        // (greater-than) instruction. Therefore we use vcmplepd (less-equal).
-        return std::all_of(std::begin(reg), std::end(reg),
-                [&threshold](__m256d r) {
-            __m256d cmpRes = _mm256_cmp_pd(r, threshold, _CMP_LE_OQ);
-            return _mm256_testz_pd(cmpRes, cmpRes);
-        });
-    }
-    char lteToPixels(const __m256d& threshold) const {
-        __m256d r0 = _mm256_cmp_pd(reg[0], threshold, _CMP_LE_OQ);
-        __m256d r1 = _mm256_cmp_pd(reg[1], threshold, _CMP_LE_OQ);
-        char c0 = _mm256_movemask_pd(r0);
-        char c1 = _mm256_movemask_pd(r1);
-        c0 <<= 4;
-        return c0 | c1;
-    }
-};
-
-union Simd512DUnion {
-    using NumberType = double;
-    using SimdRegisterType = __m512d;
-    SimdRegisterType reg[1];
-    NumberType val[8];
-    bool operator>(const __m512d& threshold) const {
-        return _mm512_cmp_pd_mask(reg[0], threshold, _CMP_GT_OQ);
-    }
-    char lteToPixels(const __m512d& threshold) const {
-        return _mm512_cmp_pd_mask(reg[0], threshold, _CMP_LE_OQ);
-    }
-};
-#endif // defined(__AVX512BW__) || defined(__AVX__) || defined(__SSE__)
+using SystemSimdUnion = Simd128DUnion;
+#endif
 
 template<class SimdUnion>
 constexpr std::size_t numberOfNumbers() {
-    return sizeof(SimdUnion::val) / sizeof(typename SimdUnion::NumberType);
+    return  SimdUnion::SIZE_OF_VAL / sizeof(typename SimdUnion::NumberType);
 }
 template<class SimdUnion>
 constexpr std::size_t numberOfNumbersInRegister() {
@@ -430,18 +526,6 @@ private:
     Size _maxOuterIterations;
     SimdRegisterType _squaredPointOfNoReturn;
 };
-
-#if defined(NO_INTRINSICS)
-using SystemSimdUnion = NoSimdUnion;
-#elif defined(__AVX512BW__)
-using SystemSimdUnion = Simd512DUnion;
-#elif defined __AVX__
-using SystemSimdUnion = Simd256DUnion;
-#elif defined __SSE__
-using SystemSimdUnion = Simd128DUnion;
-#else
-using SystemSimdUnion = NoSimdUnion;
-#endif
 
 } // end namespace
 
