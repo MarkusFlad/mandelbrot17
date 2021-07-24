@@ -19,9 +19,6 @@
 #endif
 #include <stdlib.h>
 
-// Put everything in a namespace forces inlining
-namespace {
-
 const auto numberOfCpuCores = std::thread::hardware_concurrency();
 
 // The PortableBinaryBitmap manages access to the pbm output file and provides
@@ -215,47 +212,6 @@ struct NoSimdUnion2 {
     constexpr static std::size_t SIZE_OF_VAL = sizeof(reg);
 };
 using SystemSimdUnion = NoSimdUnion2;
-
-#elif defined (NO_INTRINSICS_V3)
-// This is another new version of the SIMD data type that can be used when SIMD
-// intrinsics cannot or should not be used. It uses a C array for the reg data
-// member, which, unlike the val data member, is involved in the calculations.
-union NoSimdUnion3 {
-    using NumberType = double;
-    using SimdRegisterType = double;
-    NoSimdUnion3() {
-    }
-    NoSimdUnion3(const NoSimdUnion3& other) {
-        std::copy(std::begin(other.reg), std::end(other.reg), std::begin(reg));
-    }
-    NoSimdUnion3& operator=(const NoSimdUnion3& other) {
-        std::copy(std::begin(other.reg), std::end(other.reg), std::begin(reg));
-        return *this;
-    }
-    bool operator>(const double& threshold) const {
-        return std::all_of(std::begin(reg), std::end(reg),
-                [&threshold](double v) {
-            return v > threshold;
-        });
-    }
-    char lteToPixels(double threshold) const {
-        char result = 0;
-        if (reg[0] <= threshold) result |= 0b10000000;
-        if (reg[1] <= threshold) result |= 0b01000000;
-        if (reg[2] <= threshold) result |= 0b00100000;
-        if (reg[3] <= threshold) result |= 0b00010000;
-        if (reg[4] <= threshold) result |= 0b00001000;
-        if (reg[5] <= threshold) result |= 0b00000100;
-        if (reg[6] <= threshold) result |= 0b00000010;
-        if (reg[7] <= threshold) result |= 0b00000001;
-        return result;
-    }
-    SimdRegisterType reg[8];
-    SimdRegisterType val[8];
-    constexpr static std::size_t SIZE_OF_VAL = sizeof(reg);
-};
-using SystemSimdUnion = NoSimdUnion3;
-
 
 #elif defined(__AVX512BW__)
 union Simd512DUnion {
@@ -497,7 +453,7 @@ public:
         setValueInReg<SimdUnion>(_squaredPointOfNoReturn,
                 pointOfNoReturn * pointOfNoReturn);
     }
-    inline static void doMandelbrotIterations(VComplex& z, const VComplex& c,
+    static void doMandelbrotIterations(VComplex& z, const VComplex& c,
             SimdUnion& squaredAbs) {
         for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
             z.squareAndAdd(c, squaredAbs);
@@ -526,8 +482,6 @@ private:
     Size _maxOuterIterations;
     SimdRegisterType _squaredPointOfNoReturn;
 };
-
-} // end namespace
 
 int main(int argc, char** argv) {
     using NumberType = SystemSimdUnion::NumberType;
