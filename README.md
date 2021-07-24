@@ -20,7 +20,7 @@ Recently I found that with a slight modification to the code, almost the same sp
 However, this only applies to Clang at the moment. So I created the script build-and-test.sh, which uses different versions of compilers
 with and without intrinsics. The first version without intrinsics is the version that was uploaded to "Computer Language Benchmarks Game".
 The second version is the one that is very fast in Clang. Note that gcc-11 also gives some better results with the second version, but is
-still half as fast as Clang.
+still significantly slower than Clang.
 
 You can reproduce these tests by running the following lines on the command line (assuming folder Release exists):
 ```
