@@ -1,7 +1,7 @@
 # mandelbrot17
 Mandelbrot implementation in C++ that may use C++ features up to C++17.
 
-This project produced the currently fastest version of the mandelbrot program called "C++g++#4" on the "Computer Language Benchmarks Game".
+This project produced the currently fastest version of the mandelbrot program called ["C++g++#4" on the "Computer Language Benchmarks Game"](https://benchmarksgame-team.pages.debian.net/benchmarksgame/).
 The current results for the various implementations of the mandelbrot program can be found under the following link:
 https://benchmarksgame-team.pages.debian.net/benchmarksgame/performance/mandelbrot.html
 
