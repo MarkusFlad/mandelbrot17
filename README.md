@@ -6,11 +6,15 @@ The current results for the various implementations of the mandelbrot program ca
 https://benchmarksgame-team.pages.debian.net/benchmarksgame/performance/mandelbrot.html
 
 To build with gcc you can just can follow the following steps:
+```
     mkdir Release
     g++ --std=c++17 -O3 -Wall -march=native -mno-fma src/mandelbrot17.cpp -lpthread -o Release/mandelbrot17
+```
     
 And with the following command you can run the performance test that was basically done for the "Computer Language Benchmarks Game":
+```
     python mandelbrot17.py
+```
     
 Recently I found that with a slight modification to the code, almost the same speed can be achieved without using SIMD intrinsics.
 However, this only applies to Clang at the moment. So I created the script build-and-test.sh, which uses different versions of compilers
@@ -19,12 +23,17 @@ The second version is the one that is very fast in Clang. Note that gcc-11 also 
 still half as fast as Clang.
 
 You can reproduce these tests by running the following lines on the command line (assuming folder Release exists):
+```
     ./build-and-test.sh
+```
     
 This command creates and runs the tests. Once built, you can just use the following command to run the tests without building:
+```
     ./build-and-test.sh NO_COMPILATION
+```
 
 On my machine I get the following results:
+```
     Time for g++-9-intrinsics
     0.55745100975
     Time for g++-9-no-intrinsics-v1
@@ -61,3 +70,4 @@ On my machine I get the following results:
     2.53116297722
     Time for clang++-12-no-intrinsics-v2
     0.601706981659
+```
