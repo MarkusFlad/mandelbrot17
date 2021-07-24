@@ -9,11 +9,6 @@
 doCompile() {
     intrinsics=""
     executableName="$1-intrinsics"
-    cppStd="c++20"
-    if [[ $1 == "g++-9" ]]
-      then
-        cppStd="c++17"
-    fi
     if [[ $2 == "V1" ]]
       then
         intrinsics=-DNO_INTRINSICS_V1
@@ -24,7 +19,7 @@ doCompile() {
         executableName="$1-no-intrinsics-v2"
     fi
     set -x # echo on
-    $1 --std=$cppStd -O3 -Wall -march=native -mno-fma $intrinsics src/mandelbrot17.cpp -lpthread -o Release/$executableName
+    $1 --std=c++17 -O3 -Wall -march=native -mno-fma $intrinsics src/mandelbrot17.cpp -lpthread -o Release/$executableName
     { set +x; } 2>/dev/null # echo off
 }
 
