@@ -15,9 +15,9 @@
 #include <climits>
 #include <version>
 #include <stdlib.h>
-#include <valarray>
+#include <array>
 
-const auto numberOfCpuCores = 1;//std::thread::hardware_concurrency();
+const auto numberOfCpuCores = std::thread::hardware_concurrency();
 
 // The PortableBinaryBitmap manages access to the pbm output file and provides
 // interlaced canvases that allow threads to write to the bitmap in parallel.
@@ -129,47 +129,58 @@ private:
 };
 
 template<typename NUMBER_TYPE>
-char lteToPixels(const std::valarray<NUMBER_TYPE>& values, double threshold) {
-    char result = 0;
-    if (values[0] <= threshold) result |= 0b10000000;
-    if (values[1] <= threshold) result |= 0b01000000;
-    if (values[2] <= threshold) result |= 0b00100000;
-    if (values[3] <= threshold) result |= 0b00010000;
-    if (values[4] <= threshold) result |= 0b00001000;
-    if (values[5] <= threshold) result |= 0b00000100;
-    if (values[6] <= threshold) result |= 0b00000010;
-    if (values[7] <= threshold) result |= 0b00000001;
-    return result;
-}
+class VectorizedNumber : public std::array<NUMBER_TYPE, 8>
+{
+public:
+    bool operator>(NUMBER_TYPE value) const {
+        return (std::all_of(std::begin(*this), std::end(*this), [&value](double v) {
+            return v > value;}));
+    }
+    char lteToPixels(NUMBER_TYPE threshold) const {
+        char result = 0;
+        if ((*this)[0] <= threshold) result |= 0b10000000;
+        if ((*this)[1] <= threshold) result |= 0b01000000;
+        if ((*this)[2] <= threshold) result |= 0b00100000;
+        if ((*this)[3] <= threshold) result |= 0b00010000;
+        if ((*this)[4] <= threshold) result |= 0b00001000;
+        if ((*this)[5] <= threshold) result |= 0b00000100;
+        if ((*this)[6] <= threshold) result |= 0b00000010;
+        if ((*this)[7] <= threshold) result |= 0b00000001;
+        return result;
+    }
+    constexpr static std::size_t SIZE = 8;
+};
 
 // VectorizedComplex provides a convenient interface to deal with complex
 // numbers and uses the power of SIMD for high execution speed.
 template <typename NUMBER_TYPE>
 class VectorizedComplex {
 public:
-    using NumericArray = std::valarray<NUMBER_TYPE>;
     using Size = std::size_t;
 
     VectorizedComplex() = default;
     VectorizedComplex(const VectorizedComplex&) = default;
     VectorizedComplex& operator=(const VectorizedComplex&) = default;
-    VectorizedComplex(const NumericArray& reals, NUMBER_TYPE commonImagValue)
-    : _reals(reals)
-    , _imags(commonImagValue, 8) {
+    VectorizedComplex(const VectorizedNumber<NUMBER_TYPE>& reals,
+            NUMBER_TYPE commonImagValue)
+    : _reals(reals) {
+        std::fill(_imags.begin(), _imags.end(), commonImagValue);
     }
     VectorizedComplex& squareAndAdd(const VectorizedComplex& c,
-            NumericArray& squaredAbs) {
-        auto realSquared = _reals * _reals;
-        auto imagSquared = _imags * _imags;
-        auto realTimesImag = _reals * _imags;
-        _reals = realSquared - imagSquared + c._reals;
-        _imags = realTimesImag + realTimesImag + c._imags;
-        squaredAbs = realSquared + imagSquared;
+            VectorizedNumber<NUMBER_TYPE>& squaredAbs) {
+        for (Size i=0; i<VectorizedNumber<NUMBER_TYPE>::SIZE; i++) {
+            auto realSquared = _reals[i] * _reals[i];
+            auto imagSquared = _imags[i] * _imags[i];
+            auto realTimesImag = _reals[i] * _imags[i];
+            _reals[i] = realSquared - imagSquared + c._reals[i];
+            _imags[i] = realTimesImag + realTimesImag + c._imags[i];
+            squaredAbs[i] = realSquared + imagSquared;
+        }
         return *this;
     }
 private:
-    NumericArray _reals;
-    NumericArray _imags;
+    VectorizedNumber<NUMBER_TYPE> _reals;
+    VectorizedNumber<NUMBER_TYPE> _imags;
 };
 
 // The ComplexPlaneCalculator performs function f(c), with c as a
@@ -181,7 +192,6 @@ template <typename NUMBER_TYPE, class Functor>
 class ComplexPlaneCalculator {
 public:
     using VComplex = VectorizedComplex<NUMBER_TYPE>;
-    using NumericArray = typename VComplex::NumericArray;
     using Line = typename PortableBinaryBitmap::Line;
     using Size = std::size_t;
 
@@ -198,10 +208,10 @@ public:
         const NUMBER_TYPE imagRange = _cLast.imag() - _cFirst.imag();
         const NUMBER_TYPE rasterReal = realRange / _canvas.width();
         const NUMBER_TYPE rasterImag = imagRange / _canvas.height();
-        std::vector<NumericArray> cRealValues;
+        std::vector<VectorizedNumber<NUMBER_TYPE>> cRealValues;
         cRealValues.reserve(_canvas.width() / Line::pixelsPerWrite());
         for (Size x=0; x<_canvas.width(); x+=Line::pixelsPerWrite()) {
-            NumericArray cReals(Line::pixelsPerWrite());
+            VectorizedNumber<NUMBER_TYPE> cReals;
             for (Size i=0; i<Line::pixelsPerWrite(); i++) {
                 cReals[i] = _cFirst.real() + (x+i)*rasterReal;
             }
@@ -211,7 +221,7 @@ public:
             char* nextPixels = line.data;
             char lastPixels = 0x00;
             const NUMBER_TYPE cImagValue = _cFirst.imag() + line.y*rasterImag;
-            for (const NumericArray& cReals : cRealValues) {
+            for (const VectorizedNumber<NUMBER_TYPE>& cReals : cRealValues) {
                 const VComplex c(cReals, cImagValue);
                 *nextPixels = _f(c, lastPixels);
                 lastPixels = *nextPixels;
@@ -235,7 +245,6 @@ template <typename NUMBER_TYPE>
 class MandelbrotFunction {
 public:
     using VComplex = VectorizedComplex<NUMBER_TYPE>;
-    using NumericArray = typename VComplex::NumericArray;
     using Size = std::size_t;
     constexpr static Size ITERATIONS_WITHOUT_CHECK = 5;
     constexpr static char NONE_IN_MANDELBROT_SET = 0x00;
@@ -245,19 +254,18 @@ public:
     , _squaredPointOfNoReturn(pointOfNoReturn * pointOfNoReturn) {
     }
     static void doMandelbrotIterations(VComplex& z, const VComplex& c,
-            NumericArray& squaredAbs) {
+            VectorizedNumber<NUMBER_TYPE>& squaredAbs) {
         for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
             z.squareAndAdd(c, squaredAbs);
         }
     }
     char operator()(const VComplex& c, char lastPixels) const {
         VComplex z = c;
-        NumericArray squaredAbs;
+        VectorizedNumber<NUMBER_TYPE> squaredAbs;
         if (lastPixels == NONE_IN_MANDELBROT_SET) {
             for (Size i=0; i<_maxOuterIterations; i++) {
                 doMandelbrotIterations(z, c, squaredAbs);
-                if (std::all_of(std::begin(squaredAbs), std::end(squaredAbs),
-                    [this](double v) {return v > _squaredPointOfNoReturn;})) {
+                if (squaredAbs > _squaredPointOfNoReturn) {
                     return NONE_IN_MANDELBROT_SET;
                 }
             }
@@ -268,7 +276,7 @@ public:
         }
         doMandelbrotIterations(z, c, squaredAbs);
         doMandelbrotIterations(z, c, squaredAbs);
-        return lteToPixels(squaredAbs, _squaredPointOfNoReturn);
+        return squaredAbs.lteToPixels(_squaredPointOfNoReturn);
     }
 private:
     Size _maxOuterIterations;
