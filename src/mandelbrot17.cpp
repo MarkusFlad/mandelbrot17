@@ -35,17 +35,17 @@ public:
     ~PortableBinaryBitmap() {
         _ostr.write(_data.data(), _data.size());
     }
-    Size width() const {
+    Size width() const noexcept {
         return _width;
     }
-    Size height() const {
+    Size height() const noexcept {
         return _height;
     }
-    Size widthInBytes() const {
+    Size widthInBytes() const noexcept {
         return _width / CHAR_BIT;
     }
     struct Line {
-        constexpr static Size pixelsPerWrite() {
+        constexpr static Size pixelsPerWrite() noexcept {
             return CHAR_BIT;
         }
         Size y;
@@ -64,13 +64,13 @@ public:
             , _interlaceIncrement (interlaceIncrement)
             , _dataPointerIncrement (dataPointerIncrement) {
             }
-            Line& operator*() {
+            Line& operator*() noexcept {
                 return _il;
             }
-            bool operator!=(const Iterator& other) const {
+            bool operator!=(const Iterator& other) const noexcept {
                 return _il.data != other._il.data;
             }
-            Iterator& operator++() {
+            Iterator& operator++() noexcept {
                 _il.y += _interlaceIncrement;
                 _il.data += _dataPointerIncrement;
                 return *this;
@@ -87,18 +87,18 @@ public:
         , _dataStart (yStart * pbm.widthInBytes())
         , _dataPointerIncrement (increment * pbm.widthInBytes()) {
         }
-        Size width() const {
+        Size width() const noexcept {
             return _pbm.width();
         }
-        Size height() const {
+        Size height() const noexcept {
             return _pbm.height();
         }
-        Iterator begin() {
+        Iterator begin() noexcept {
             return Iterator(_yStart, _pbm.width(),
                     _pbm._data.data() + _dataStart,
                     _increment, _dataPointerIncrement);
         }
-        Iterator end() {
+        Iterator end() noexcept {
             return Iterator(_yStart + _pbm.height(), _pbm.width(),
                     _pbm._data.data() + _pbm._data.size() + _dataStart,
                     _increment, _dataPointerIncrement);
@@ -118,7 +118,7 @@ public:
         }
         return interlacedCanvasVector;
     }
-    static Size roundToMultiple (Size number, Size base) {
+    static Size roundToMultiple (Size number, Size base) noexcept {
         return number + ((number % base) ? (base - number % base) : 0);
     }
 private:
@@ -129,26 +129,48 @@ private:
 };
 
 template<typename NUMBER_TYPE>
-class VectorizedNumber : public std::array<NUMBER_TYPE, 8>
+class VectorizedNumber
 {
 public:
-    bool operator>(NUMBER_TYPE value) const {
-        return (std::all_of(std::begin(*this), std::end(*this), [&value](double v) {
+    constexpr static std::size_t SIZE = 8;
+    using NumericArray = std::array<NUMBER_TYPE, SIZE>;
+
+    constexpr NUMBER_TYPE operator[](std::size_t i) const {
+        return _values[i];
+    }
+    constexpr NUMBER_TYPE& operator[](std::size_t i) {
+        return _values[i];
+    }
+    constexpr typename NumericArray::const_iterator begin() const noexcept {
+        return _values.begin();
+    }
+    constexpr typename NumericArray::const_iterator end() const noexcept {
+        return _values.end();
+    }
+    constexpr typename NumericArray::iterator begin() noexcept {
+        return _values.begin();
+    }
+    constexpr typename NumericArray::iterator end() noexcept {
+        return _values.end();
+    }
+    constexpr bool operator>(NUMBER_TYPE value) const noexcept {
+        return (std::all_of(_values.begin(), _values.end(), [&value](double v) {
             return v > value;}));
     }
-    char lteToPixels(NUMBER_TYPE threshold) const {
+    constexpr char lteToPixels(NUMBER_TYPE threshold) const noexcept {
         char result = 0;
-        if ((*this)[0] <= threshold) result |= 0b10000000;
-        if ((*this)[1] <= threshold) result |= 0b01000000;
-        if ((*this)[2] <= threshold) result |= 0b00100000;
-        if ((*this)[3] <= threshold) result |= 0b00010000;
-        if ((*this)[4] <= threshold) result |= 0b00001000;
-        if ((*this)[5] <= threshold) result |= 0b00000100;
-        if ((*this)[6] <= threshold) result |= 0b00000010;
-        if ((*this)[7] <= threshold) result |= 0b00000001;
+        if (_values[0] <= threshold) result |= 0b10000000;
+        if (_values[1] <= threshold) result |= 0b01000000;
+        if (_values[2] <= threshold) result |= 0b00100000;
+        if (_values[3] <= threshold) result |= 0b00010000;
+        if (_values[4] <= threshold) result |= 0b00001000;
+        if (_values[5] <= threshold) result |= 0b00000100;
+        if (_values[6] <= threshold) result |= 0b00000010;
+        if (_values[7] <= threshold) result |= 0b00000001;
         return result;
     }
-    constexpr static std::size_t SIZE = 8;
+private:
+    NumericArray _values;
 };
 
 // VectorizedComplex provides a convenient interface to deal with complex
@@ -167,7 +189,7 @@ public:
         std::fill(_imags.begin(), _imags.end(), commonImagValue);
     }
     VectorizedComplex& squareAndAdd(const VectorizedComplex& c,
-            VectorizedNumber<NUMBER_TYPE>& squaredAbs) {
+            VectorizedNumber<NUMBER_TYPE>& squaredAbs) noexcept {
         for (Size i=0; i<VectorizedNumber<NUMBER_TYPE>::SIZE; i++) {
             auto realSquared = _reals[i] * _reals[i];
             auto imagSquared = _imags[i] * _imags[i];
@@ -254,12 +276,12 @@ public:
     , _squaredPointOfNoReturn(pointOfNoReturn * pointOfNoReturn) {
     }
     static void doMandelbrotIterations(VComplex& z, const VComplex& c,
-            VectorizedNumber<NUMBER_TYPE>& squaredAbs) {
+            VectorizedNumber<NUMBER_TYPE>& squaredAbs) noexcept {
         for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
             z.squareAndAdd(c, squaredAbs);
         }
     }
-    char operator()(const VComplex& c, char lastPixels) const {
+    char operator()(const VComplex& c, char lastPixels) const noexcept {
         VComplex z = c;
         VectorizedNumber<NUMBER_TYPE> squaredAbs;
         if (lastPixels == NONE_IN_MANDELBROT_SET) {
