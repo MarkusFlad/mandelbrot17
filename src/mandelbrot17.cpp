@@ -14,7 +14,6 @@
 #include <thread>
 #include <climits>
 #include <version>
-#include <stdlib.h>
 #include <array>
 
 const auto numberOfCpuCores = std::thread::hardware_concurrency();
@@ -135,6 +134,19 @@ public:
     constexpr static std::size_t SIZE = 8;
     using NumericArray = std::array<NUMBER_TYPE, SIZE>;
 
+#if defined(STRANGE_SIMD_HINT)
+    VectorizedNumber()
+    : _x(_values.data()) {
+    }
+    VectorizedNumber(const VectorizedNumber& other)
+    : _x(_values.data()) {
+        std::copy(other.begin(), other.end(), _values.begin());
+    }
+    VectorizedNumber& operator=(const VectorizedNumber& other) {
+        std::copy(other.begin(), other.end(), _values.begin());
+        return *this;
+    }
+#endif // Strange SIMD performance hint
     constexpr NUMBER_TYPE operator[](std::size_t i) const {
         return _values[i];
     }
@@ -154,8 +166,8 @@ public:
         return _values.end();
     }
     constexpr bool operator>(NUMBER_TYPE value) const noexcept {
-        return (std::all_of(_values.begin(), _values.end(), [&value](double v) {
-            return v > value;}));
+        return (std::all_of(_values.begin(), _values.end(),
+                [&value](NUMBER_TYPE v) {return v > value;}));
     }
     constexpr char lteToPixels(NUMBER_TYPE threshold) const noexcept {
         char result = 0;
@@ -171,6 +183,9 @@ public:
     }
 private:
     NumericArray _values;
+#if defined(STRANGE_SIMD_HINT)
+    NUMBER_TYPE* _x;
+#endif // Strange SIMD performance hint
 };
 
 // VectorizedComplex provides a convenient interface to deal with complex
