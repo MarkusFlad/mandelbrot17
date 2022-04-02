@@ -134,16 +134,35 @@ public:
     constexpr static std::size_t SIZE = 8;
     using NumericArray = std::array<NUMBER_TYPE, SIZE>;
 
-#if defined(STRANGE_SIMD_HINT)
+    VectorizedNumber(NUMBER_TYPE value) {
+        std::fill(_values.begin(), _values.end(), value);
+    }
+#ifndef STRANGE_SIMD_HINT
+    VectorizedNumber() {
+    }
+#else
     VectorizedNumber()
     : _x(_values.data()) {
     }
     VectorizedNumber(const VectorizedNumber& other)
-    : _x(_values.data()) {
-        std::copy(other.begin(), other.end(), _values.begin());
+    : _values(other._values)
+#ifndef __GNUC__
+    , _x(_values.data()) {
+#else
+    {
+        for (size_t i=0; i<SIZE; ++i) {
+            _values[i] = other._values[i];
+        }
+#endif // __GNUC__
     }
     VectorizedNumber& operator=(const VectorizedNumber& other) {
-        std::copy(other.begin(), other.end(), _values.begin());
+#ifndef __GNUC__
+        _values = other.values;
+#else
+        for (size_t i=0; i<SIZE; ++i) {
+            _values[i] = other._values[i];
+        }
+#endif // __GNUC__
         return *this;
     }
 #endif // Strange SIMD performance hint
@@ -200,8 +219,8 @@ public:
     VectorizedComplex& operator=(const VectorizedComplex&) = default;
     VectorizedComplex(const VectorizedNumber<NUMBER_TYPE>& reals,
             NUMBER_TYPE commonImagValue)
-    : _reals(reals) {
-        std::fill(_imags.begin(), _imags.end(), commonImagValue);
+    : _reals(reals)
+    , _imags(commonImagValue){
     }
     VectorizedComplex& squareAndAdd(const VectorizedComplex& c,
             VectorizedNumber<NUMBER_TYPE>& squaredAbs) noexcept {
