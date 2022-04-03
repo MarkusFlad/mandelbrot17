@@ -1,10 +1,13 @@
 ﻿// The Computer Language Benchmarks Game
 // https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
 //
-// Contributed by Markus Flad
+// Contributed by Markus Flad.
+// Unlike the original version, this version uses std::array to make the
+// compiler vectorize. So no more intrinsics from the header file immintrin.h
+// are needed.
 //
-// compile with following g++ flags
-//  -std=c++17 -O3 -Wall -march=native
+// Compile with following g++ flags
+//  -std=c++17 -O3 -Wall -march=native -mno-fma
 
 #include <string>
 #include <iostream>

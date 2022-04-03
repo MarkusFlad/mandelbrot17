@@ -6,7 +6,7 @@ doCompile() {
     preprocessorDefines=""
     executableName="mandelbrot-$1"
     set -x # echo on
-    $1 -std=c++17 -O3 -Wall -march=native $preprocessorDefines src/mandelbrot17.cpp -lpthread -o Release/$executableName
+    $1 -std=c++17 -O3 -Wall -march=native -mno-fma $preprocessorDefines src/mandelbrot17.cpp -lpthread -o Release/$executableName
     { set +x; } 2>/dev/null # echo off
 }
 
