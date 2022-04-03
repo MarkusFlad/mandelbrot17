@@ -134,61 +134,42 @@ public:
     constexpr static std::size_t SIZE = 8;
     using NumericArray = std::array<NUMBER_TYPE, SIZE>;
 
-    VectorizedNumber(NUMBER_TYPE value) {
-        std::fill(_values.begin(), _values.end(), value);
-    }
-#ifndef STRANGE_SIMD_HINT
-    VectorizedNumber() {
-    }
-#else
     VectorizedNumber()
     : _x(_values.data()) {
     }
+    VectorizedNumber(NUMBER_TYPE value)
+    : _x(_values.data()) {
+        std::fill(_values.begin(), _values.end(), value);
+    }
     VectorizedNumber(const VectorizedNumber& other)
-    : _values(other._values)
-#ifndef __GNUC__
-    , _x(_values.data()) {
-#else
-    {
+    : _x(_values.data()) {
         for (size_t i=0; i<SIZE; ++i) {
             _values[i] = other._values[i];
         }
-#endif // __GNUC__
     }
     VectorizedNumber& operator=(const VectorizedNumber& other) {
-#ifndef __GNUC__
-        _values = other.values;
-#else
         for (size_t i=0; i<SIZE; ++i) {
             _values[i] = other._values[i];
         }
-#endif // __GNUC__
         return *this;
     }
-#endif // Strange SIMD performance hint
-    constexpr NUMBER_TYPE operator[](std::size_t i) const {
+    NUMBER_TYPE operator[](std::size_t i) const {
         return _values[i];
     }
-    constexpr NUMBER_TYPE& operator[](std::size_t i) {
+    NUMBER_TYPE& operator[](std::size_t i) {
         return _values[i];
     }
-    constexpr typename NumericArray::const_iterator begin() const noexcept {
+    typename NumericArray::const_iterator begin() const noexcept {
         return _values.begin();
     }
-    constexpr typename NumericArray::const_iterator end() const noexcept {
+    typename NumericArray::const_iterator end() const noexcept {
         return _values.end();
     }
-    constexpr typename NumericArray::iterator begin() noexcept {
-        return _values.begin();
-    }
-    constexpr typename NumericArray::iterator end() noexcept {
-        return _values.end();
-    }
-    constexpr bool operator>(NUMBER_TYPE value) const noexcept {
+    bool operator>(NUMBER_TYPE value) const noexcept {
         return (std::all_of(_values.begin(), _values.end(),
                 [&value](NUMBER_TYPE v) {return v > value;}));
     }
-    constexpr char lteToPixels(NUMBER_TYPE threshold) const noexcept {
+    char lteToPixels(NUMBER_TYPE threshold) const noexcept {
         char result = 0;
         if (_values[0] <= threshold) result |= 0b10000000;
         if (_values[1] <= threshold) result |= 0b01000000;
@@ -202,9 +183,9 @@ public:
     }
 private:
     NumericArray _values;
-#if defined(STRANGE_SIMD_HINT)
+    // A pointer to the data, which is not used outside, but helps the compiler
+    // with the SIMD optimization (especially GCC 11).
     NUMBER_TYPE* _x;
-#endif // Strange SIMD performance hint
 };
 
 // VectorizedComplex provides a convenient interface to deal with complex

@@ -9,11 +9,6 @@
 doCompile() {
     preprocessorDefines=""
     executableName="mandelbrot-$1"
-    if [[ $2 == "StrangeSimdHint" ]]
-      then
-        preprocessorDefines=-DSTRANGE_SIMD_HINT
-        executableName="mandelbrot-$1-strangeSimdHint"
-    fi
     set -x # echo on
     $1 --std=c++17 -O3 -Wall -march=native -mno-fma $preprocessorDefines src/mandelbrot17.cpp -lpthread -o Release/$executableName
     { set +x; } 2>/dev/null # echo off
@@ -38,31 +33,19 @@ runTest() {
 if [[ $1 != "NO_COMPILATION" ]]
     then
       doCompile g++-9
-      doCompile g++-9 StrangeSimdHint
       doCompile g++-10
-      doCompile g++-10 StrangeSimdHint
       doCompile g++-11
-      doCompile g++-11 StrangeSimdHint
       doCompile clang++-10
-      doCompile clang++-10 StrangeSimdHint
       doCompile clang++-11
-      doCompile clang++-11 StrangeSimdHint
       doCompile clang++-12
-      doCompile clang++-12 StrangeSimdHint
 fi
 
 if [[ $1 != "NO_RUN" ]]
     then
       runTest g++-9
-      runTest g++-9 StrangeSimdHint
       runTest g++-10
-      runTest g++-10 StrangeSimdHint
       runTest g++-11
-      runTest g++-11 StrangeSimdHint
       runTest clang++-10
-      runTest clang++-10 StrangeSimdHint
       runTest clang++-11
-      runTest clang++-11 StrangeSimdHint
       runTest clang++-12
-      runTest clang++-12 StrangeSimdHint
 fi
