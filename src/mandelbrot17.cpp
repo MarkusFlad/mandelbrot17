@@ -127,85 +127,29 @@ private:
     std::vector<char> _data;
 };
 
-template<typename NUMBER_TYPE>
-class VectorizedNumber
-{
-public:
-    constexpr static std::size_t SIZE = 8;
-    using NumericArray = std::array<NUMBER_TYPE, SIZE>;
+static constexpr std::size_t MAX_VECTORIZATION = 8;
 
-    VectorizedNumber(NUMBER_TYPE value) {
-        std::fill(_values.begin(), _values.end(), value);
-    }
-#ifndef STRANGE_SIMD_HINT
-    VectorizedNumber() {
-    }
-#else
-    VectorizedNumber()
-    : _x(_values.data()) {
-    }
-    VectorizedNumber(const VectorizedNumber& other)
-    : _values(other._values)
-#ifndef __GNUC__
-    , _x(_values.data()) {
-#else
-    {
-        for (size_t i=0; i<SIZE; ++i) {
-            _values[i] = other._values[i];
-        }
-#endif // __GNUC__
-    }
-    VectorizedNumber& operator=(const VectorizedNumber& other) {
-#ifndef __GNUC__
-        _values = other.values;
-#else
-        for (size_t i=0; i<SIZE; ++i) {
-            _values[i] = other._values[i];
-        }
-#endif // __GNUC__
-        return *this;
-    }
-#endif // Strange SIMD performance hint
-    constexpr NUMBER_TYPE operator[](std::size_t i) const {
-        return _values[i];
-    }
-    constexpr NUMBER_TYPE& operator[](std::size_t i) {
-        return _values[i];
-    }
-    constexpr typename NumericArray::const_iterator begin() const noexcept {
-        return _values.begin();
-    }
-    constexpr typename NumericArray::const_iterator end() const noexcept {
-        return _values.end();
-    }
-    constexpr typename NumericArray::iterator begin() noexcept {
-        return _values.begin();
-    }
-    constexpr typename NumericArray::iterator end() noexcept {
-        return _values.end();
-    }
-    constexpr bool operator>(NUMBER_TYPE value) const noexcept {
-        return (std::all_of(_values.begin(), _values.end(),
-                [&value](NUMBER_TYPE v) {return v > value;}));
-    }
-    constexpr char lteToPixels(NUMBER_TYPE threshold) const noexcept {
-        char result = 0;
-        if (_values[0] <= threshold) result |= 0b10000000;
-        if (_values[1] <= threshold) result |= 0b01000000;
-        if (_values[2] <= threshold) result |= 0b00100000;
-        if (_values[3] <= threshold) result |= 0b00010000;
-        if (_values[4] <= threshold) result |= 0b00001000;
-        if (_values[5] <= threshold) result |= 0b00000100;
-        if (_values[6] <= threshold) result |= 0b00000010;
-        if (_values[7] <= threshold) result |= 0b00000001;
-        return result;
-    }
-private:
-    NumericArray _values;
-#if defined(STRANGE_SIMD_HINT)
-    NUMBER_TYPE* _x;
-#endif // Strange SIMD performance hint
-};
+template<typename NUMBER_TYPE>
+bool operator>(const std::array<NUMBER_TYPE, MAX_VECTORIZATION> lhs,
+        NUMBER_TYPE rhs) noexcept {
+    return (std::all_of(lhs.begin(), lhs.end(),
+            [&rhs](NUMBER_TYPE v) {return v > rhs;}));
+}
+
+template<typename NUMBER_TYPE>
+char lteToPixels(const std::array<NUMBER_TYPE, MAX_VECTORIZATION> values,
+        NUMBER_TYPE threshold) noexcept {
+    char result = 0;
+    if (values[0] <= threshold) result |= 0b10000000;
+    if (values[1] <= threshold) result |= 0b01000000;
+    if (values[2] <= threshold) result |= 0b00100000;
+    if (values[3] <= threshold) result |= 0b00010000;
+    if (values[4] <= threshold) result |= 0b00001000;
+    if (values[5] <= threshold) result |= 0b00000100;
+    if (values[6] <= threshold) result |= 0b00000010;
+    if (values[7] <= threshold) result |= 0b00000001;
+    return result;
+}
 
 // VectorizedComplex provides a convenient interface to deal with complex
 // numbers and uses the power of SIMD for high execution speed.
@@ -213,18 +157,32 @@ template <typename NUMBER_TYPE>
 class VectorizedComplex {
 public:
     using Size = std::size_t;
+    using VectorizedNumber = std::array<NUMBER_TYPE, MAX_VECTORIZATION>;
 
-    VectorizedComplex() = default;
-    VectorizedComplex(const VectorizedComplex&) = default;
-    VectorizedComplex& operator=(const VectorizedComplex&) = default;
-    VectorizedComplex(const VectorizedNumber<NUMBER_TYPE>& reals,
+    VectorizedComplex()
+    : _hintReals(_reals.data())
+    , _hintImags(_imags.data()) {
+    }
+    VectorizedComplex(const VectorizedComplex& other)
+    : _reals(other._reals)
+    , _imags(other._imags)
+    , _hintReals(_reals.data())
+    , _hintImags(_imags.data()) {
+    }
+    VectorizedComplex& operator=(const VectorizedComplex& other) {
+        _reals = other._reals;
+        _imags = other._imags;
+    }
+    VectorizedComplex(const VectorizedNumber& reals,
             NUMBER_TYPE commonImagValue)
     : _reals(reals)
-    , _imags(commonImagValue){
+    , _hintReals(_reals.data())
+    , _hintImags(_imags.data()) {
+        std::fill(_imags.begin(), _imags.end(), commonImagValue);
     }
     VectorizedComplex& squareAndAdd(const VectorizedComplex& c,
-            VectorizedNumber<NUMBER_TYPE>& squaredAbs) noexcept {
-        for (Size i=0; i<VectorizedNumber<NUMBER_TYPE>::SIZE; i++) {
+            VectorizedNumber& squaredAbs) noexcept {
+        for (Size i=0; i<MAX_VECTORIZATION; ++i) {
             auto realSquared = _reals[i] * _reals[i];
             auto imagSquared = _imags[i] * _imags[i];
             auto realTimesImag = _reals[i] * _imags[i];
@@ -235,8 +193,10 @@ public:
         return *this;
     }
 private:
-    VectorizedNumber<NUMBER_TYPE> _reals;
-    VectorizedNumber<NUMBER_TYPE> _imags;
+    VectorizedNumber _reals;
+    VectorizedNumber _imags;
+    NUMBER_TYPE* _hintReals;
+    NUMBER_TYPE* _hintImags;
 };
 
 // The ComplexPlaneCalculator performs function f(c), with c as a
@@ -250,6 +210,7 @@ public:
     using VComplex = VectorizedComplex<NUMBER_TYPE>;
     using Line = typename PortableBinaryBitmap::Line;
     using Size = std::size_t;
+    using VectorizedNumber = std::array<NUMBER_TYPE, MAX_VECTORIZATION>;
 
     ComplexPlaneCalculator(const std::complex<NUMBER_TYPE>& cFirst,
             const std::complex<NUMBER_TYPE>& cLast,
@@ -264,11 +225,11 @@ public:
         const NUMBER_TYPE imagRange = _cLast.imag() - _cFirst.imag();
         const NUMBER_TYPE rasterReal = realRange / _canvas.width();
         const NUMBER_TYPE rasterImag = imagRange / _canvas.height();
-        std::vector<VectorizedNumber<NUMBER_TYPE>> cRealValues;
+        std::vector<VectorizedNumber> cRealValues;
         cRealValues.reserve(_canvas.width() / Line::pixelsPerWrite());
         for (Size x=0; x<_canvas.width(); x+=Line::pixelsPerWrite()) {
-            VectorizedNumber<NUMBER_TYPE> cReals;
-            for (Size i=0; i<Line::pixelsPerWrite(); i++) {
+            VectorizedNumber cReals;
+            for (Size i=0; i<Line::pixelsPerWrite(); ++i) {
                 cReals[i] = _cFirst.real() + (x+i)*rasterReal;
             }
             cRealValues.push_back(cReals);
@@ -277,7 +238,7 @@ public:
             char* nextPixels = line.data;
             char lastPixels = 0x00;
             const NUMBER_TYPE cImagValue = _cFirst.imag() + line.y*rasterImag;
-            for (const VectorizedNumber<NUMBER_TYPE>& cReals : cRealValues) {
+            for (const VectorizedNumber& cReals : cRealValues) {
                 const VComplex c(cReals, cImagValue);
                 *nextPixels = _f(c, lastPixels);
                 lastPixels = *nextPixels;
@@ -303,6 +264,7 @@ public:
     using VComplex = VectorizedComplex<NUMBER_TYPE>;
     using Size = std::size_t;
     constexpr static Size ITERATIONS_WITHOUT_CHECK = 5;
+    using VectorizedNumber = std::array<NUMBER_TYPE, MAX_VECTORIZATION>;
     constexpr static char NONE_IN_MANDELBROT_SET = 0x00;
 
     MandelbrotFunction(Size maxIterations, NUMBER_TYPE pointOfNoReturn = 2.0)
@@ -310,29 +272,29 @@ public:
     , _squaredPointOfNoReturn(pointOfNoReturn * pointOfNoReturn) {
     }
     static void doMandelbrotIterations(VComplex& z, const VComplex& c,
-            VectorizedNumber<NUMBER_TYPE>& squaredAbs) noexcept {
+            VectorizedNumber& squaredAbs) noexcept {
         for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
             z.squareAndAdd(c, squaredAbs);
         }
     }
     char operator()(const VComplex& c, char lastPixels) const noexcept {
         VComplex z = c;
-        VectorizedNumber<NUMBER_TYPE> squaredAbs;
+        VectorizedNumber squaredAbs;
         if (lastPixels == NONE_IN_MANDELBROT_SET) {
-            for (Size i=0; i<_maxOuterIterations; i++) {
+            for (Size i=0; i<_maxOuterIterations; ++i) {
                 doMandelbrotIterations(z, c, squaredAbs);
                 if (squaredAbs > _squaredPointOfNoReturn) {
                     return NONE_IN_MANDELBROT_SET;
                 }
             }
         } else {
-            for (Size i=0; i<_maxOuterIterations; i++) {
+            for (Size i=0; i<_maxOuterIterations; ++i) {
                 doMandelbrotIterations(z, c, squaredAbs);
             }
         }
         doMandelbrotIterations(z, c, squaredAbs);
         doMandelbrotIterations(z, c, squaredAbs);
-        return squaredAbs.lteToPixels(_squaredPointOfNoReturn);
+        return lteToPixels(squaredAbs, _squaredPointOfNoReturn);
     }
 private:
     Size _maxOuterIterations;
