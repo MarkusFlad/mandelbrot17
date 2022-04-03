@@ -51,7 +51,7 @@
                                 								
                                 <option id="gnu.cpp.compiler.option.dialect.flags.1647981090" name="Other dialect flags" superClass="gnu.cpp.compiler.option.dialect.flags" useByScannerDiscovery="true" value="-std=c++17" valueType="string"/>
                                 								
-                                <option id="gnu.cpp.compiler.option.other.other.1410456292" name="Other flags" superClass="gnu.cpp.compiler.option.other.other" useByScannerDiscovery="false" value="-c  -march=native -mno-fma" valueType="string"/>
+                                <option id="gnu.cpp.compiler.option.other.other.1410456292" name="Other flags" superClass="gnu.cpp.compiler.option.other.other" useByScannerDiscovery="false" value="-c " valueType="string"/>
                                 								
                                 <inputType id="cdt.managedbuild.tool.gnu.cpp.compiler.input.1692636640" superClass="cdt.managedbuild.tool.gnu.cpp.compiler.input"/>
                                 							
@@ -159,7 +159,7 @@
                                 								
                                 <option id="gnu.cpp.compiler.option.dialect.flags.17415189" name="Other dialect flags" superClass="gnu.cpp.compiler.option.dialect.flags" useByScannerDiscovery="true" value="-std=c++17" valueType="string"/>
                                 								
-                                <option id="gnu.cpp.compiler.option.other.other.871113533" name="Other flags" superClass="gnu.cpp.compiler.option.other.other" useByScannerDiscovery="false" value="-c -march=native -mno-fma" valueType="string"/>
+                                <option id="gnu.cpp.compiler.option.other.other.871113533" name="Other flags" superClass="gnu.cpp.compiler.option.other.other" useByScannerDiscovery="false" value="-c -march=native" valueType="string"/>
                                 								
                                 <inputType id="cdt.managedbuild.tool.gnu.cpp.compiler.input.909137861" superClass="cdt.managedbuild.tool.gnu.cpp.compiler.input"/>
                                 							

@@ -4,7 +4,7 @@
 // Contributed by Markus Flad
 //
 // compile with following g++ flags
-//  -std=c++17 -O3 -Wall -march=native -mno-fma
+//  -std=c++17 -O3 -Wall -march=native
 
 #include <string>
 #include <iostream>

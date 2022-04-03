@@ -2,30 +2,18 @@
 
 # Compile the mandelbrot executable.
 # First parameter: Name of the compiler.
-# Second parameter: V1=no intrinsics version 1,
-#                   V2=no intrinsics version 2,
-#                   V3=no intrinsics version 3
-#                   Default: use intrinsics
 doCompile() {
     preprocessorDefines=""
     executableName="mandelbrot-$1"
     set -x # echo on
-    $1 --std=c++17 -O3 -Wall -march=native -mno-fma $preprocessorDefines src/mandelbrot17.cpp -lpthread -o Release/$executableName
+    $1 -std=c++17 -O3 -Wall -march=native $preprocessorDefines src/mandelbrot17.cpp -lpthread -o Release/$executableName
     { set +x; } 2>/dev/null # echo off
 }
 
 # Run the mandelbrot performance test
 # First parameter: Name of the compiler.
-# Second parameter: V1=no intrinsics version 1,
-#                   V2=no intrinsics version 2,
-#                   V3=no intrinsics version 3
-#                   Default: use intrinsics
 runTest() {
     executableName="mandelbrot-$1"
-    if [[ $2 == "StrangeSimdHint" ]]
-      then
-        executableName="mandelbrot-$1-strangeSimdHint"
-    fi
     echo "Time for $executableName"
     python mandelbrot17.py $executableName
 }
