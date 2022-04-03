@@ -137,7 +137,7 @@ public:
     VectorizedNumber()
     : _x(_values.data()) {
     }
-    VectorizedNumber(NUMBER_TYPE value)
+    explicit VectorizedNumber(NUMBER_TYPE value)
     : _x(_values.data()) {
         std::fill(_values.begin(), _values.end(), value);
     }
