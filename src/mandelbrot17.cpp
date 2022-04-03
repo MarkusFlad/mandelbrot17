@@ -58,7 +58,7 @@ public:
         class Iterator {
         public:
             Iterator(Size y, Size _width, char* data,
-                    Size interlaceIncrement, Size dataPointerIncrement)
+                    Size interlaceIncrement, Size dataPointerIncrement) noexcept
             : _il {y, _width, data}
             , _interlaceIncrement (interlaceIncrement)
             , _dataPointerIncrement (dataPointerIncrement) {
@@ -80,6 +80,7 @@ public:
             Size _dataPointerIncrement;
         };
         InterlacedCanvas(PortableBinaryBitmap& pbm, Size yStart, Size increment)
+                noexcept
         : _pbm (pbm)
         , _yStart (yStart)
         , _increment (increment)
@@ -112,7 +113,7 @@ public:
     std::vector<InterlacedCanvas> provideInterlacedCanvas(Size increment)
             noexcept {
         std::vector<InterlacedCanvas> interlacedCanvasVector;
-        for (Size yStart=0; yStart<increment; yStart++) {
+        for (Size yStart=0; yStart<increment; ++yStart) {
             interlacedCanvasVector.emplace_back(*this, yStart, increment);
         }
         return interlacedCanvasVector;
@@ -134,29 +135,30 @@ public:
     constexpr static std::size_t SIZE = 8;
     using NumericArray = std::array<NUMBER_TYPE, SIZE>;
 
-    VectorizedNumber()
+    VectorizedNumber() noexcept
     : _x(_values.data()) {
     }
-    explicit VectorizedNumber(NUMBER_TYPE value)
+    explicit VectorizedNumber(NUMBER_TYPE value) noexcept
     : _x(_values.data()) {
         std::fill(_values.begin(), _values.end(), value);
     }
-    VectorizedNumber(const VectorizedNumber& other)
+    VectorizedNumber(const VectorizedNumber& other) noexcept
     : _x(_values.data()) {
-        for (size_t i=0; i<SIZE; ++i) {
-            _values[i] = other._values[i];
-        }
+        *this = other;
     }
-    VectorizedNumber& operator=(const VectorizedNumber& other) {
+    VectorizedNumber& operator=(const VectorizedNumber& other) noexcept {
+        // In GCC (unlike Clang), using the std::array assignment operator and
+        // also its copy constructor slows down SIMD performance. Therefore we
+        // use a raw loop here.
         for (size_t i=0; i<SIZE; ++i) {
             _values[i] = other._values[i];
         }
         return *this;
     }
-    NUMBER_TYPE operator[](std::size_t i) const {
+    NUMBER_TYPE operator[](std::size_t i) const noexcept{
         return _values[i];
     }
-    NUMBER_TYPE& operator[](std::size_t i) {
+    NUMBER_TYPE& operator[](std::size_t i) noexcept {
         return _values[i];
     }
     typename NumericArray::const_iterator begin() const noexcept {
@@ -199,13 +201,13 @@ public:
     VectorizedComplex(const VectorizedComplex&) = default;
     VectorizedComplex& operator=(const VectorizedComplex&) = default;
     VectorizedComplex(const VectorizedNumber<NUMBER_TYPE>& reals,
-            NUMBER_TYPE commonImagValue)
+            NUMBER_TYPE commonImagValue) noexcept
     : _reals(reals)
     , _imags(commonImagValue){
     }
     VectorizedComplex& squareAndAdd(const VectorizedComplex& c,
             VectorizedNumber<NUMBER_TYPE>& squaredAbs) noexcept {
-        for (Size i=0; i<VectorizedNumber<NUMBER_TYPE>::SIZE; i++) {
+        for (Size i=0; i<VectorizedNumber<NUMBER_TYPE>::SIZE; ++i) {
             auto realSquared = _reals[i] * _reals[i];
             auto imagSquared = _imags[i] * _imags[i];
             auto realTimesImag = _reals[i] * _imags[i];
@@ -234,7 +236,7 @@ public:
 
     ComplexPlaneCalculator(const std::complex<NUMBER_TYPE>& cFirst,
             const std::complex<NUMBER_TYPE>& cLast,
-            PortableBinaryBitmap::InterlacedCanvas& canvas, Functor f)
+            PortableBinaryBitmap::InterlacedCanvas& canvas, Functor f) noexcept
     : _cFirst(cFirst)
     , _cLast(cLast)
     , _canvas(canvas)
@@ -249,7 +251,7 @@ public:
         cRealValues.reserve(_canvas.width() / Line::pixelsPerWrite());
         for (Size x=0; x<_canvas.width(); x+=Line::pixelsPerWrite()) {
             VectorizedNumber<NUMBER_TYPE> cReals;
-            for (Size i=0; i<Line::pixelsPerWrite(); i++) {
+            for (Size i=0; i<Line::pixelsPerWrite(); ++i) {
                 cReals[i] = _cFirst.real() + (x+i)*rasterReal;
             }
             cRealValues.push_back(cReals);
@@ -287,12 +289,13 @@ public:
     constexpr static char NONE_IN_MANDELBROT_SET = 0x00;
 
     MandelbrotFunction(Size maxIterations, NUMBER_TYPE pointOfNoReturn = 2.0)
+            noexcept
     : _maxOuterIterations(maxIterations / ITERATIONS_WITHOUT_CHECK - 2)
     , _squaredPointOfNoReturn(pointOfNoReturn * pointOfNoReturn) {
     }
     static void doMandelbrotIterations(VComplex& z, const VComplex& c,
             VectorizedNumber<NUMBER_TYPE>& squaredAbs) noexcept {
-        for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; j++) {
+        for (Size j=0; j<ITERATIONS_WITHOUT_CHECK; ++j) {
             z.squareAndAdd(c, squaredAbs);
         }
     }
@@ -300,14 +303,14 @@ public:
         VComplex z = c;
         VectorizedNumber<NUMBER_TYPE> squaredAbs;
         if (lastPixels == NONE_IN_MANDELBROT_SET) {
-            for (Size i=0; i<_maxOuterIterations; i++) {
+            for (Size i=0; i<_maxOuterIterations; ++i) {
                 doMandelbrotIterations(z, c, squaredAbs);
                 if (squaredAbs > _squaredPointOfNoReturn) {
                     return NONE_IN_MANDELBROT_SET;
                 }
             }
         } else {
-            for (Size i=0; i<_maxOuterIterations; i++) {
+            for (Size i=0; i<_maxOuterIterations; ++i) {
                 doMandelbrotIterations(z, c, squaredAbs);
             }
         }
